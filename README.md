@@ -2,6 +2,8 @@
 
 # Auto Company
 
+> Fork of [MaxMiksa/Auto-Company](https://github.com/MaxMiksa/Auto-Company) · Original concept and architecture by [Zheyuan (Max) Kong](https://github.com/MaxMiksa)
+
 **A fully autonomous AI company running 24/7** <a href="README-ZH.md"><img alt="[中文说明]" src="https://img.shields.io/badge/%5B%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E%5D-2f3640.svg" /></a>
 
 Powered by **Agentic Workflows**, this project orchestrates 14 **Autonomous AI Agents**, each modeled after world-class experts in their domain.
@@ -347,20 +349,19 @@ Suggested rollout: start with `make start` (foreground), then move to daemon mod
 
 ## Acknowledgments
 
-- Thanks to [@JasonQWJ](https://github.com/JasonQWJ) and [@cnwillz](https://github.com/cnwillz) for earlier macOS dashboard support proposals and implementation attempts that helped inform the final cross-platform dashboard design released in `v1.1.0`.
-- [nicepkg/auto-company](https://github.com/nicepkg/auto-company) - initial macOS edition
-- [continuous-claude](https://github.com/AnandChowdhary/continuous-claude) - cross-session shared notes
-- [ralph-claude-code](https://github.com/frankbria/ralph-claude-code) - exit signal interception
-- [claude-auto-resume](https://github.com/terryso/claude-auto-resume) - usage-limit resume pattern
+This project is a fork of [MaxMiksa/Auto-Company](https://github.com/MaxMiksa/Auto-Company) by **Zheyuan (Max) Kong**. The original concept, autonomous agent architecture, 14-role model, Agent Teams routing, and `memories/consensus.md` cross-cycle state mechanism were designed by Max. This fork extends the system with SenseNova API integration, options trading signal subsystems, and enhanced cycle resilience.
+
+Special thanks also to:
+
+- [@JasonQWJ](https://github.com/JasonQWJ) and [@cnwillz](https://github.com/cnwillz) for earlier macOS dashboard support
+- [nicepkg/auto-company](https://github.com/nicepkg/auto-company) — initial macOS edition
+- [continuous-claude](https://github.com/AnandChowdhary/continuous-claude) — cross-session shared notes
+- [ralph-claude-code](https://github.com/frankbria/ralph-claude-code) — exit signal interception
+- [claude-auto-resume](https://github.com/terryso/claude-auto-resume) — usage-limit resume pattern
 
 ## 🤝 Contribution & Contact
 
 Welcome to submit Issues and Pull Requests!
-
-This is a maintained fork of [MaxMiksa/Auto-Company](https://github.com/MaxMiksa/Auto-Company) with additional features:
-- SenseNova API integration with 6-key rotation
-- Options arbitrage trading signal subsystem
-- Enhanced cycle resilience and timeout handling
 
 GitHub: https://github.com/DrfterX/auto-company
 
