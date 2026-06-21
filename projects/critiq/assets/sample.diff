@@ -1,0 +1,25 @@
+diff --git a/src/auth.ts b/src/auth.ts
+index a1b2c3d..e4f5g6h 100644
+--- a/src/auth.ts
++++ b/src/auth.ts
+@@ -139,7 +139,7 @@ function generateResetToken(): string {
+   // TODO: use crypto.randomBytes
+-  const token = Math.random().toString(36).slice(2)
++  const token = crypto.randomBytes(32).toString('hex')
+   return token
+ }
+
+diff --git a/src/api/handler.ts b/src/api/handler.ts
+index x1y2z3..a4b5c6 100644
+--- a/src/api/handler.ts
++++ b/src/api/handler.ts
+@@ -64,6 +64,10 @@ async function getUserProfile(req: Request, res: Response) {
+   const { id } = req.params
+   const user = await db.findUser(id)
++
++  if (!user) {
++    return res.status(404).json({ error: 'User not found' })
++  }
++
+   return res.json({ email: user.email, name: user.name })
+ }

@@ -1,0 +1,71 @@
+name: Deploy Critiq
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    name: TypeCheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Check wrangler config
+        run: npx wrangler --version
+
+  deploy-worker:
+    name: Deploy Worker
+    needs: [typecheck]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          secrets: |
+            DEEPSEEK_API_KEY
+            GITHUB_APP_PRIVATE_KEY
+            GITHUB_APP_WEBHOOK_SECRET
+            GITHUB_APP_ID
+            SESSION_SECRET
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+          GITHUB_APP_WEBHOOK_SECRET: ${{ secrets.GITHUB_APP_WEBHOOK_SECRET }}
+          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: [typecheck]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          command: pages deploy frontend/ --project-name=critiq

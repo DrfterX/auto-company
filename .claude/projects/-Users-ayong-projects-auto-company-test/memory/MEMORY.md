@@ -1,0 +1,1 @@
+- [ModelScope API Key](modelscope-api-key.md) — Critiq 的关键依赖可用，之前被忽略

@@ -1,0 +1,14 @@
+[
+  {
+    "cron": "1 15 16 6 2",
+    "id": "statushub-ph-submit-20260616",
+    "prompt": "## PH Submission — StatusHub Launch Time!\n\nFire time reached: Tue 6/16 15:01 CST = 00:01 PT — exactly the launch target.\n\n**Step 5.2 — Submit StatusHub to Product Hunt**\n\n1. Read `docs/marketing/statushub-ph-listing.md` for the full listing content\n2. Read `memories/consensus.md` for current state\n3. Use agent-browser to open https://www.producthunt.com/posts/new\n4. Fill in all listing fields from the PH listing doc:\n   - Product Name: StatusHub\n   - Tagline: A status page that just works. No monitor, no alerts, no clutter.\n   - Subtitle: API-first public status pages deployable in 3 minutes on Cloudflare's global edge. Free or $5/mo.\n   - Description: use the full description from the PH doc\n   - First Comment: \"I built StatusHub because I was tired of paying $29/mo for features I never use...\"\n   - Topics: Developer Tools, SaaS, Cloudflare\n5. Submit/publish immediately (it's launch time!)\n6. Verify the listing page loads successfully\n7. Update `memories/consensus.md`:\n   - Set PH submission to ✅\n   - Advance to Step 5.3 (Monitor PH comments for first 4h)\n   - Record PH listing URL\n8. Record in `.cron-state.json` that PH cron has fired\n\n**Project directory:** /Users/ayong/projects/auto-company_test",
+    "recurring": false
+  },
+  {
+    "cron": "31 15 16 6 2",
+    "id": "statushub-devto-publish-20260616",
+    "prompt": "## Dev.to Publication — StatusHub Technical Deep-Dive\n\nFire time reached: Tue 6/16 15:31 CST (30 min after PH submission).\n\n**Step 5.3 — Publish Dev.to Technical Article about StatusHub**\n\n1. Read `docs/marketing/statushub-launch-strategy.md` section 3.3 for the article outline\n2. Read `memories/consensus.md` for current state\n3. Write a comprehensive technical deep-dive article titled:\n   **\"Building a 50ms Status Page Service on Cloudflare Workers\"**\n4. Article structure:\n   - The problem: status pages are over-engineered\n   - Architecture choice: Workers + D1 vs Node/Postgres\n   - Cold start: ~5ms vs 200ms+ on Lambda\n   - D1 for simplicity (no connection pooling, no ORM)\n   - The \"Industrial Precision\" design system (zero JS, pure CSS)\n   - API-first auth with API keys\n   - Pricing philosophy\n   - Lessons learned\n5. Publish to Dev.to (must create an account if needed)\n6. Update `memories/consensus.md`:\n   - Set Dev.to publication to ✅\n   - Record the Dev.to article URL\n7. Record in `.cron-state.json` that Dev.to cron has fired\n\n**Project directory:** /Users/ayong/projects/auto-company_test",
+    "recurring": false
+  }
+]

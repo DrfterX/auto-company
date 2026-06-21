@@ -1,0 +1,26 @@
+{
+  "name": "critiq",
+  "url": "https://critiq.dev",
+  "hook_attributes": {
+    "url": "https://critiq.workers.dev/webhook",
+    "active": true
+  },
+  "redirect_url": "https://critiq.dev/setup-complete",
+  "callback_urls": ["https://critiq.dev/api/github/callback"],
+  "public": true,
+  "default_permissions": {
+    "pull_requests": "write",
+    "checks": "write",
+    "contents": "read",
+    "metadata": "read",
+    "issues": "read"
+  },
+  "default_events": [
+    "pull_request",
+    "pull_request_review",
+    "push"
+  ],
+  "request_oauth_on_install": true,
+  "setup_url": "https://critiq.dev/docs",
+  "description": "Zero-noise AI Code Review Agent for Chinese-speaking teams. Only flags real bugs — no false noise."
+}

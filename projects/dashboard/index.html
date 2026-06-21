@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto Company 控制台</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Crimson+Pro:opsz,wght@9..144,400;9..144,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="mesh"></div>
+  <div class="grain"></div>
+  <main class="deck">
+    <header class="hero panel reveal-1">
+      <div>
+        <p class="eyebrow">AUTO COMPANY</p>
+        <h1>监控控制台</h1>
+        <p class="subtitle">运行时遥测与操作控制</p>
+      </div>
+      <div class="hero-meta">
+        <div class="pulse-wrap">
+          <span id="pulseDot" class="pulse-dot"></span>
+          <span id="pulseText">连接状态: --</span>
+        </div>
+        <p id="lastUpdate">最近更新: --</p>
+        <p id="latency">响应时间: --</p>
+      </div>
+    </header>
+
+    <section class="controls panel reveal-2">
+      <div class="control-group">
+        <button id="btnRefresh" class="btn btn-ghost">刷新</button>
+        <button id="btnStart" class="btn btn-start">启动</button>
+        <button id="btnStop" class="btn btn-stop">停止</button>
+      </div>
+      <div class="control-group compact">
+        <label class="toggle">
+          <input id="autoToggle" type="checkbox" checked />
+          <span>自动刷新</span>
+        </label>
+        <label>
+          刷新间隔
+          <select id="refreshInterval">
+            <option value="3000">3秒</option>
+            <option value="5000" selected>5秒</option>
+            <option value="8000">8秒</option>
+            <option value="12000">12秒</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="grid-cards reveal-3">
+      <article class="panel card status-card" id="cardGuardian">
+        <h3>防睡眠守护</h3>
+        <p class="big" id="guardianState">--</p>
+        <p class="muted mono" id="guardianMeta">PID --</p>
+      </article>
+      <article class="panel card status-card" id="cardDaemon">
+        <h3>系统守护</h3>
+        <p class="big" id="daemonState">--</p>
+        <p class="muted mono" id="daemonMeta">进程 --</p>
+      </article>
+      <article class="panel card status-card" id="cardLoop">
+        <h3>主循环</h3>
+        <p class="big" id="loopState">--</p>
+        <p class="muted mono" id="loopMeta">轮次 --</p>
+      </article>
+      <article class="panel card status-card" id="cardAutostart">
+        <h3>开机自启</h3>
+        <p class="big" id="autostartState">--</p>
+        <p class="muted mono" id="autostartMeta">自启状态</p>
+      </article>
+    </section>
+
+    <section class="grid-details reveal-4">
+      <article class="panel detail">
+        <h3>运行时状态</h3>
+        <dl id="stateList" class="state-list"></dl>
+      </article>
+      <article class="panel detail">
+        <h3>当前共识</h3>
+        <div id="consensusText" class="markdown-view">(加载中...)</div>
+      </article>
+    </section>
+
+    <section class="panel reveal-5">
+      <div class="panel-head">
+        <h3>近期日志</h3>
+        <button id="btnTail" class="btn btn-ghost small">刷新日志</button>
+      </div>
+      <pre id="logText" class="terminal tall">(加载中...)</pre>
+    </section>
+
+    <section class="panel reveal-6">
+      <div class="panel-head">
+        <h3>原始状态输出</h3>
+        <button id="btnRaw" class="btn btn-ghost small">展开/收起</button>
+      </div>
+      <pre id="rawText" class="terminal hidden"></pre>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

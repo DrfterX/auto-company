@@ -1,0 +1,79 @@
+# Critiq Self-Review CI — Dogfooding
+# Uses the local critiq-review action to review Critiq code changes.
+# This also validates the action itself works correctly.
+
+on:
+  pull_request:
+    paths:
+      - "projects/critiq/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "projects/critiq/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: critiq-self-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  critiq-self-review:
+    name: 🐶 Critiq Self-Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: projects/critiq
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: projects/critiq/package-lock.json
+
+      - name: Install & build
+        working-directory: projects/critiq
+        run: |
+          npm ci
+          node build.mjs
+
+      - name: Run Critiq Self-Review (PR diff)
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=50
+          git diff origin/${{ github.base_ref }}...HEAD | \
+          node projects/critiq/dist/cli.js \
+            --pr-title "🐶 Self-Review: ${{ github.head_ref }}" \
+            --repo "MaxMiksa/Auto-Company" \
+            --pr-number ${{ github.event.pull_request.number }} \
+            --json
+        env:
+          CRITIQ_API_KEY: ${{ secrets.CRITIQ_API_KEY }}
+          CRITIQ_API_BASE: ${{ secrets.CRITIQ_API_BASE || 'https://api-inference.modelscope.cn/v1' }}
+          CRITIQ_MODEL: ${{ secrets.CRITIQ_MODEL || 'deepseek-ai/DeepSeek-V4-Flash' }}
+
+      - name: Run Critiq Self-Review (push to main)
+        if: github.event_name == 'push'
+        working-directory: .
+        run: |
+          git diff HEAD~1 HEAD | \
+          node projects/critiq/dist/cli.js \
+            --pr-title "🐶 Self-Review: push to main" \
+            --json
+        env:
+          CRITIQ_API_KEY: ${{ secrets.CRITIQ_API_KEY }}
+          CRITIQ_API_BASE: ${{ secrets.CRITIQ_API_BASE || 'https://api-inference.modelscope.cn/v1' }}
+          CRITIQ_MODEL: ${{ secrets.CRITIQ_MODEL || 'deepseek-ai/DeepSeek-V4-Flash' }}

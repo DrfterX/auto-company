@@ -1,0 +1,60 @@
+{
+  "name": "critiq-cli",
+  "version": "0.1.1",
+  "description": "Critiq — Zero-noise AI Code Review Agent for developers. CLI-first. Pipe `git diff` and get AI-powered reviews in Chinese.",
+  "type": "module",
+  "private": false,
+  "bin": {
+    "critiq": "./dist/cli.js"
+  },
+  "main": "./dist/review.js",
+  "types": "./dist/review.d.ts",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "deploy:frontend": "wrangler pages deploy frontend/ --project-name=critiq",
+    "prebuild": "rm -rf dist",
+    "build": "node build.mjs",
+    "build:worker": "wrangler deploy --dry-run",
+    "cli:dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "db:local": "wrangler d1 migrations apply critiq-db --local",
+    "db:remote": "wrangler d1 migrations apply critiq-db",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:smoke": "bash sample/smoke-test.sh",
+    "prepublishOnly": "npm run build",
+    "cli": "node dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "code-review",
+    "ai",
+    "deepseek",
+    "pr-review",
+    "github",
+    "automation",
+    "developer-tools"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@octokit/webhooks": "^13.3.0",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "@types/node": "^25.9.1",
+    "rimraf": "^6.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.0",
+    "wrangler": "^3.99.0"
+  }
+}

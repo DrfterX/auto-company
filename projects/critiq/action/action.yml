@@ -1,0 +1,146 @@
+# Critiq GitHub Action — AI Code Review for PRs
+#
+# Usage:
+#
+#   .github/workflows/critiq-review.yml
+#   ─────────────────────────────────────
+#   name: Critiq Review
+#   on: [pull_request]
+#   jobs:
+#     review:
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/checkout@v4
+#           with:
+#             fetch-depth: 0
+#         - uses: DrfterX/critiq/action@main
+#           with:
+#             api-key: ${{ secrets.CRITIQ_API_KEY }}
+#             github-token: ${{ secrets.GITHUB_TOKEN }}
+#             model: deepseek-chat
+#
+# The PR diff is auto-detected. Results are posted as a PR comment.
+
+name: 'Critiq Code Review'
+description: 'Zero-noise AI code review for pull requests — supports any OpenAI-compatible API'
+
+inputs:
+  api-key:
+    description: 'API key for your AI provider (DeepSeek, OpenAI, etc.)'
+    required: true
+  github-token:
+    description: 'GitHub token for posting review comments on PRs'
+    required: true
+  model:
+    description: 'Model to use (e.g., deepseek-chat, gpt-4o-mini)'
+    required: false
+    default: 'deepseek-chat'
+  api-base:
+    description: 'API base URL (e.g., https://api.deepseek.com/v1)'
+    required: false
+    default: 'https://api.deepseek.com/v1'
+  max-diff:
+    description: 'Max diff length in bytes to analyze'
+    required: false
+    default: '40000'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Critiq
+      shell: bash
+      run: |
+        # Install from npm when published, or from source:
+        if npm view critiq-cli version &>/dev/null 2>/dev/null; then
+          npm install -g critiq-cli
+        else
+          echo "Critiq not yet published on npm. Installing from source..."
+          git clone --depth 1 https://github.com/DrfterX/critiq.git /tmp/critiq-source
+          cd /tmp/critiq-source
+          npm ci
+          node build.mjs
+          echo "Critiq installed from source."
+        fi
+
+    - name: Get PR diff
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        PR_NUMBER=${{ github.event.pull_request.number }}
+        REPO=${{ github.repository }}
+        gh api "/repos/$REPO/pulls/$PR_NUMBER" --jq '.title' > /tmp/pr-title.txt
+        gh api "/repos/$REPO/pulls/$PR_NUMBER" --jq '.body' > /tmp/pr-body.txt
+        gh api "/repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[] | "--- a/\(.filename)\n+++ b/\(.filename)\n\(.patch // "")"' > /tmp/pr-diff.diff
+
+    - name: Run Critiq review
+      shell: bash
+      id: review
+      env:
+        CRITIQ_API_KEY: ${{ inputs.api-key }}
+        CRITIQ_API_BASE: ${{ inputs.api-base }}
+        CRITIQ_MODEL: ${{ inputs.model }}
+      run: |
+        cat /tmp/pr-diff.diff | critiq \
+          --pr-title "$(cat /tmp/pr-title.txt)" \
+          --pr-body "$(cat /tmp/pr-body.txt)" \
+          --repo "${{ github.repository }}" \
+          --pr-number "${{ github.event.pull_request.number }}" \
+          --max-diff "${{ inputs.max-diff }}" \
+          --json > /tmp/critiq-result.json 2>&1 || echo "Review failed (API key issue?)" > /tmp/critiq-result.json
+
+        # Store result for posting
+        echo "review-done=true" >> $GITHUB_OUTPUT
+
+    - name: Post review comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        PR_NUMBER=${{ github.event.pull_request.number }}
+        REPO=${{ github.repository }}
+        RESULT=$(cat /tmp/critiq-result.json 2>/dev/null || echo '{}')
+
+        # Format as markdown
+        COMMENT="## 🤖 Critiq Review\n\n"
+
+        SCORE=$(echo "$RESULT" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); try{const j=JSON.parse(d); console.log(j.overallScore||'N/A')}catch(e){console.log('N/A')}")
+        SUMMARY=$(echo "$RESULT" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); try{const j=JSON.parse(d); console.log(j.summary||'')}catch(e){console.log('')}")
+        COMMENT_COUNT=$(echo "$RESULT" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); try{const j=JSON.parse(d); console.log((j.comments||[]).length)}catch(e){console.log('0')}")
+
+        COMMENT+="**Score:** ${SCORE}/10  \n"
+        COMMENT+="**Issues found:** ${COMMENT_COUNT}  \n\n"
+
+        if [ -n "$SUMMARY" ]; then
+          COMMENT+="$SUMMARY\n\n"
+        fi
+
+        if [ "$COMMENT_COUNT" != "0" ]; then
+          COMMENT+="### Issues\n\n"
+          echo "$RESULT" | node -e "
+            const d=require('fs').readFileSync('/dev/stdin','utf8');
+            try {
+              const j=JSON.parse(d);
+              (j.comments||[]).forEach(c => {
+                const emoji = c.severity==='critical'?'🔴':c.severity==='warning'?'🟡':'🔵';
+                COMMENT+=\`\${emoji} **\${c.path}:\${c.line}** — \${c.body}\n  > \${c.category} | \${c.confidence}\n\n\`;
+              });
+            } catch(e){}
+          "
+        fi
+
+        COMMENT+="---\n*Powered by [Critiq](https://github.com/DrfterX/critiq)*"
+
+        gh api "/repos/$REPO/issues/$PR_NUMBER/comments" \
+          -f "body=$COMMENT" \
+          --silent

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Building Critiq: A $0/mo AI Code Review Agent — Critiq Blog</title>
+  <meta name="description" content="Critiq 是一个零噪声 AI Code Review Agent，一次 git diff 只抓 3 个真实 Bug，不废话。每月基础设施成本 $0。">
+  <meta name="keywords" content="AI code review, code review tool, Chinese developer tool, git diff review, DeepSeek">
+  <meta property="og:title" content="Building Critiq: A $0/mo AI Code Review Agent That Actually Shuts Up">
+  <meta property="og:description" content="One principle: catch real bugs, skip the nits. And do it for zero infrastructure cost.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://critiq.pages.dev/blog/">
+  <meta property="article:published_time" content="2026-06-13">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300..700&family=Syne:wght@400..800&family=Figtree:wght@300..900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep:     #0b0d11;
+      --bg-surface:  #12151c;
+      --bg-elevated: #1a1e27;
+      --bg-hover:    #212734;
+      --border:      #222838;
+      --border-lt:   #2a3144;
+      --text-hi:     #ecedf0;
+      --text-md:     #949bb0;
+      --text-lo:     #4f5670;
+      --amber:       #e8a838;
+      --amber-glow:  rgba(232,168,56,.08);
+      --amber-dim:   #7c5d1e;
+      --cyan:        #22d3ee;
+      --green:       #34d399;
+      --red:         #f87171;
+      --orange:      #fb923c;
+      --font-disp:   'Syne', system-ui, sans-serif;
+      --font-body:   'Figtree', system-ui, sans-serif;
+      --font-code:   'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+      --r-card:      6px;
+      --r-pill:      999px;
+      --max-w:       720px;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+    body{
+      background:var(--bg-deep);color:var(--text-hi);
+      font-family:var(--font-body);font-size:16px;line-height:1.8;
+      min-height:100vh;overflow-x:hidden;
+      background-image:
+        radial-gradient(ellipse 600px 400px at 20% 10%, rgba(232,168,56,.025) 0%, transparent 100%),
+        radial-gradient(ellipse 500px 500px at 80% 30%, rgba(34,211,238,.015) 0%, transparent 100%);
+    }
+    h1,h2,h3,h4{font-family:var(--font-disp);font-weight:700;line-height:1.2;letter-spacing:-.02em}
+    a{color:var(--amber);text-decoration:none;transition:color .2s}
+    a:hover{color:#f0c05c}
+    code,pre{font-family:var(--font-code)}
+    ::selection{background:rgba(232,168,56,.3);color:#fff}
+
+    .noise{
+      position:fixed;inset:0;pointer-events:none;z-index:9999;
+      opacity:.012;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-repeat:repeat;background-size:256px 256px;
+    }
+
+    nav{
+      position:sticky;top:0;z-index:100;
+      display:flex;align-items:center;justify-content:space-between;
+      padding:16px 28px;
+      background:rgba(11,13,17,.85);backdrop-filter:blur(16px) saturate(1.4);
+      border-bottom:1px solid var(--border);
+    }
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;max-width:1080px;margin:0 auto;width:100%}
+    .nav-logo{font-family:var(--font-disp);font-weight:800;font-size:22px;letter-spacing:-.03em;color:var(--text-hi)}
+    .nav-logo span{color:var(--amber)}
+    .nav-links{display:flex;gap:20px;align-items:center}
+    .nav-links a{font-size:13px;color:var(--text-md);font-weight:400;transition:color .2s}
+    .nav-links a:hover{color:var(--text-hi)}
+    .nav-links a.active{color:var(--amber);font-weight:500}
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:7px;
+      font-family:var(--font-code);font-size:12px;font-weight:500;
+      padding:9px 22px;border-radius:var(--r-pill);cursor:pointer;
+      transition:all .2s;text-decoration:none;white-space:nowrap;
+    }
+    .btn-primary{background:var(--amber);color:var(--bg-deep);}
+    .btn-primary:hover{background:#f0c05c;color:var(--bg-deep);transform:translateY(-1px)}
+    .btn-sm{padding:7px 16px;font-size:11px}
+
+    /* ─── Article ─── */
+    .article-header{
+      padding:80px 28px 48px;text-align:center;max-width:var(--max-w);margin:0 auto;
+      border-bottom:1px solid var(--border);
+    }
+    .article-header .meta{
+      font-family:var(--font-code);font-size:11px;color:var(--text-lo);
+      display:flex;gap:16px;justify-content:center;align-items:center;margin-bottom:24px;
+    }
+    .article-header .meta .dot{width:3px;height:3px;border-radius:50%;background:var(--text-lo)}
+    .article-header h1{
+      font-size:clamp(28px,3.8vw,44px);font-weight:800;letter-spacing:-.04em;
+      line-height:1.15;margin-bottom:20px;
+    }
+    .article-header .subtitle{
+      font-size:17px;color:var(--text-md);max-width:600px;margin:0 auto;line-height:1.6;
+    }
+    .article-header .read-time{
+      font-family:var(--font-code);font-size:11px;color:var(--amber);margin-top:24px;
+    }
+
+    .article-body{
+      max-width:var(--max-w);margin:0 auto;padding:48px 28px 80px;
+    }
+    .article-body p,.article-body li{font-size:15.5px;line-height:1.85;color:var(--text-md);margin-bottom:20px}
+    .article-body p strong{color:var(--text-hi);font-weight:600}
+    .article-body h2{
+      font-size:clamp(20px,2vw,28px);font-weight:700;margin:48px 0 16px;
+      padding-bottom:10px;border-bottom:1px solid var(--border);
+    }
+    .article-body h3{
+      font-size:17px;font-weight:600;margin:36px 0 12px;
+    }
+    .article-body ul,.article-body ol{padding-left:24px;margin-bottom:24px}
+    .article-body ul li{list-style:disc;margin-bottom:8px}
+    .article-body ol li{list-style:decimal;margin-bottom:8px}
+    .article-body li::marker{color:var(--amber)}
+    .article-body blockquote{
+      border-left:2px solid var(--amber);padding:16px 20px;margin:28px 0;
+      background:rgba(232,168,56,.03);border-radius:0 4px 4px 0;
+    }
+    .article-body blockquote p{color:var(--text-hi);font-size:15px;margin:0}
+    .article-body blockquote cite{color:var(--text-lo);font-size:13px;display:block;margin-top:8px;font-style:normal}
+    .article-body code{
+      font-size:13px;background:var(--bg-elevated);padding:2px 6px;border-radius:3px;
+      color:var(--cyan);
+    }
+    .article-body pre{
+      background:var(--bg-surface);border:1px solid var(--border);
+      border-radius:var(--r-card);padding:20px;overflow-x:auto;margin:28px 0;
+    }
+    .article-body pre code{background:none;padding:0;font-size:13px;line-height:1.7;color:var(--text-md)}
+    .article-body hr{border:none;border-top:1px solid var(--border);margin:48px 0}
+    .article-body .c{color:var(--text-lo);font-style:italic}
+    .article-body .k{color:var(--cyan)}
+    .article-body .s{color:#f0d060}
+    .article-body .v{color:var(--green)}
+    .article-body .o{color:var(--amber)}
+    .article-body .hl-amber{color:var(--amber)}
+    .article-body .hl-red{color:var(--red)}
+    .article-body .hl-green{color:var(--green)}
+    .article-body .hl-cyan{color:var(--cyan)}
+
+    .article-body .code-block{
+      border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;margin:28px 0;
+    }
+    .article-body .code-block .cb-header{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:10px 16px;background:var(--bg-elevated);border-bottom:1px solid var(--border);
+    }
+    .article-body .code-block .cb-label{font-family:var(--font-code);font-size:10px;color:var(--text-lo);letter-spacing:.03em}
+    .article-body .code-block .cb-dots{display:flex;gap:5px}
+    .article-body .code-block .cb-dot{width:7px;height:7px;border-radius:50%}
+    .article-body .code-block pre{background:var(--bg-surface);border:none;border-radius:0;margin:0}
+
+    /* ─── Table ─── */
+    .article-body table{
+      width:100%;border-collapse:collapse;margin:28px 0;
+      font-size:14px;border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;
+    }
+    .article-body th,.article-body td{
+      padding:10px 14px;text-align:left;border-bottom:1px solid var(--border);
+    }
+    .article-body th{background:var(--bg-elevated);color:var(--text-hi);font-family:var(--font-code);font-size:11px;letter-spacing:.03em;text-transform:uppercase}
+    .article-body tr:last-child td{border-bottom:none}
+    .article-body td{color:var(--text-md)}
+
+    /* ─── Footer ─── */
+    .article-footer{
+      max-width:var(--max-w);margin:0 auto;padding:32px 28px 48px;
+      border-top:1px solid var(--border);
+    }
+    .article-footer .back-link{font-family:var(--font-code);font-size:13px}
+    .article-footer .back-link:hover{color:var(--text-hi)}
+    .article-footer .share{
+      display:flex;gap:12px;margin-top:16px;font-family:var(--font-code);font-size:12px;
+    }
+    .article-footer .share a{color:var(--text-lo)}
+
+    footer{
+      border-top:1px solid var(--border);padding:40px 28px;text-align:center;
+    }
+    footer .f-inner{max-width:var(--max-w);margin:0 auto}
+    footer .f-links{display:flex;gap:24px;justify-content:center;margin-bottom:16px;flex-wrap:wrap}
+    footer .f-links a{font-size:12px;color:var(--text-lo);font-family:var(--font-code)}
+    footer .f-links a:hover{color:var(--text-md)}
+    footer .f-copy{font-size:11px;color:var(--text-lo);font-family:var(--font-code)}
+
+    @media(max-width:600px){
+      .article-header{padding:48px 20px 32px}
+      .article-body{padding:32px 20px 60px}
+      .article-body p,.article-body li{font-size:15px}
+      .article-body pre{padding:14px}
+      .nav-links a:not(.btn):not(.active){display:none}
+    }
+  </style>
+</head>
+<body>
+<div class="noise"></div>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="/">Criti<span>q</span></a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/blog/" class="active">Blog</a>
+      <a href="https://github.com/DrfterX/critiq" target="_blank">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<article>
+  <header class="article-header">
+    <div class="meta">
+      <span>June 13, 2026</span>
+      <span class="dot"></span>
+      <span>Auto Company Engineering</span>
+    </div>
+    <h1>Building Critiq: A $0/mo AI Code Review Agent That Actually Shuts Up When There's Nothing to Say</h1>
+    <p class="subtitle">One principle: catch real bugs, skip the nits. And do it for zero infrastructure cost.</p>
+    <div class="read-time">☕ 8 min read · 1200 lines of TypeScript · $0/mo infra</div>
+  </header>
+
+  <div class="article-body">
+
+<h2>The Problem With AI Code Review</h2>
+
+<p>Let me paint a picture. You push a PR. Within 30 seconds, a bot posts 12 comments:</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">typical AI review</div>
+  </div>
+  <pre><span class="text-lo">⚠️ Line 23: Consider using `const` instead of `let`
+⚠️ Line 47: This function is 12 lines, consider breaking it up
+⚠️ Line 89: Missing JSDoc comment
+⚠️ Line 112: Trailing whitespace</span></pre>
+</div>
+
+<p>Here's the thing — <strong>you already know all of this.</strong> Your linter knows this. Your formatter knows this. Even your teammate who skimmed the diff for 10 seconds knows this.</p>
+
+<p>What you <em>don't</em> know is whether that <code>useEffect</code> has a race condition. Whether that SQL query is vulnerable to injection. Whether that new API endpoint violates your auth model.</p>
+
+<p>Existing AI code review tools suffer from a fundamental problem: <strong>they confuse "can find something to say" with "having something valuable to say."</strong> And because they're priced per-seat SaaS products, they have every incentive to seem thorough — which in practice means generating noise.</p>
+
+<p>So I built Critiq.</p>
+
+<h2>The Purple Cow: CLI-First, Zero Noise</h2>
+
+<p>Critiq is not another GitHub bot you install and configure. It's a <strong>CLI tool</strong> that does one thing: pipe in a diff, get back a review with <strong>at most 3 comments</strong>, only on things that actually matter.</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">Usage</div>
+  </div>
+  <pre><span class="o">$</span> git diff HEAD | npx critiq-cli</pre>
+</div>
+
+<p>That's it. No signup, no OAuth flow, no pricing page to navigate. Three seconds later:</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">Output</div>
+  </div>
+  <pre>──────────────────────────────────────────────────
+  🤖  <span class="hl-amber">Critiq Review</span>
+
+  Review of PR #42: Fix race condition in user cache
+
+  Score: ★★★☆☆  7/10
+
+  WARNING  src/cache.ts:88
+       [bug] medium confidence
+       竞态条件：getUserCache 在 setUserCache 完成前返回过期数据。
+       建议在写入完成前使用锁或 Promise 队列。
+
+──────────────────────────────────────────────────
+  Tokens: 892 (↑840 ↓52)
+──────────────────────────────────────────────────</pre>
+</div>
+
+<p>Notice what's <strong>not</strong> there. No nitpick about variable naming. No complaint about missing JSDoc. No suggestion to extract a function that's perfectly readable inline.</p>
+
+<p>The hard cap of 3 comments isn't a technical limitation — it's a <strong>philosophical choice</strong>. If Critiq can't find 3 things genuinely wrong with your code, it posts 2. Or 1. Or 0. Because the highest value comment is often the one an AI <em>didn't</em> generate.</p>
+
+<h2>Architecture: 1000 Lines of TypeScript, $0/mo</h2>
+
+<p>The entire Critiq system — CLI, API worker, GitHub App — is built in under 1000 lines of TypeScript and runs on <strong>Cloudflare's free tier</strong>. Total monthly infrastructure cost: <strong>$0</strong>.</p>
+
+<h3>Three Components, One Core</h3>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">Architecture</div>
+  </div>
+  <pre>┌────────────────────┐     ┌────────────────────┐
+│   npm CLI          │     │  Cloudflare Worker  │
+│   (critiq-cli)     │     │                     │
+│                    │     │  POST /review       │
+│  stdin → API       │     │  POST /webhook      │
+│  --pretty/--json   │     │  GET /api/reviews   │
+└────────┬───────────┘     └──────────┬───────────┘
+         │                            │
+         └──────────┬─────────────────┘
+                    ▼
+         ┌────────────────────┐
+         │  review.ts         │
+         │  prompt.ts         │
+         │  (100 lines total) │
+         └──────────┬─────────┘
+                    ▼
+         ┌────────────────────┐
+         │  DeepSeek V4 Flash │
+         │  ~$0.00002/req     │
+         └────────────────────┘</pre>
+</div>
+
+<h3>The CLI — esbuild Bundle, 9KB</h3>
+
+<p>I chose <strong>esbuild</strong> over tsc for the CLI build. Why? The output is a single ~9KB file with zero runtime dependencies:</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">build.mjs</div>
+  </div>
+  <pre><span class="k">await</span> esbuild.build({
+  entryPoints: [<span class="s">'src/cli.ts'</span>],
+  outfile: <span class="s">'dist/cli.js'</span>,
+  bundle: <span class="k">true</span>,
+  platform: <span class="s">'node'</span>,
+  target: <span class="s">'node18'</span>,
+  banner: { js: <span class="s">'#!/usr/bin/env node'</span> },
+})</pre>
+</div>
+
+<p>The <code>banner</code> line means <code>dist/cli.js</code> is directly executable. <code>npm install -g critiq-cli</code> creates a symlink, the shebang resolves to your local Node, and it just works.</p>
+
+<h3>The Prompt — Where the Magic (and Discipline) Lives</h3>
+
+<p>The secret sauce isn't the AI model. It's the <strong>system prompt</strong> that tells DeepSeek to <em>shut up unless it matters</em>:</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">system prompt (abridged)</div>
+  </div>
+  <pre><span class="c">## Core Principles</span>
+1. Low noise, high signal — Default to silence.
+2. Empathetic — Assume the author is a capable engineer.
+3. Actionable — Every comment must include a concrete suggestion.
+
+<span class="c">## Constraints</span>
+- Output AT MOST 3 comments total.
+- Focus ONLY on: real bugs, security, performance regressions.
+- Skip: formatting, naming conventions, style preferences, JSDoc.</pre>
+</div>
+
+<p>But prompts alone aren't reliable. So there's a <strong>hard cap</strong> in the code:</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">review.ts</div>
+  </div>
+  <pre><span class="k">const</span> comments = (parsed.comments || [])
+  .filter(c => c.path && c.body)   <span class="c">// filter invalid entries</span>
+  .slice(0, 3)                      <span class="c">// hard cap: never more than 3</span></pre>
+</div>
+
+<p>Prompt engineering + code enforcement = the zero-noise guarantee isn't a promise, it's a constraint.</p>
+
+<h3>Model-Agnostic by Design</h3>
+
+<p>Critiq doesn't hardcode DeepSeek. Every API call goes through environment variables:</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">config</div>
+  </div>
+  <pre><span class="k">const</span> apiBase = <span class="k">process.env</span>.CRITIQ_API_BASE || <span class="s">'https://api.deepseek.com/v1'</span>
+<span class="k">const</span> model   = <span class="k">process.env</span>.CRITIQ_MODEL   || <span class="s">'deepseek-chat'</span></pre>
+</div>
+
+<p>Want to use OpenAI? Set <code>CRITIQ_API_BASE=https://api.openai.com/v1</code> and <code>CRITIQ_MODEL=gpt-4o-mini</code>. Want to use a local Ollama server? Set it to <code>http://localhost:11434/v1</code>. The code doesn't care.</p>
+
+<p>The default is DeepSeek V4 Flash — currently priced at roughly <strong>$0.00002 per review</strong>. At that rate, 50,000 reviews cost $1.</p>
+
+<h2>Infrastructure: A Masterclass in Free Tier</h2>
+
+<p>Here's the full cost breakdown:</p>
+
+<table>
+  <tr>
+    <th>Service</th>
+    <th>Purpose</th>
+    <th>Cost</th>
+  </tr>
+  <tr><td>Cloudflare Workers</td><td>API + Webhook handler</td><td>Free (100k req/day)</td></tr>
+  <tr><td>Cloudflare KV</td><td>PR state + comment cache</td><td>Free (1GB)</td></tr>
+  <tr><td>Cloudflare D1</td><td>Review history database</td><td>Free (5GB)</td></tr>
+  <tr><td>Cloudflare Pages</td><td>Landing page</td><td>Free (unlimited bandwidth)</td></tr>
+  <tr><td>DeepSeek API</td><td>AI model</td><td>~$0.00002/review</td></tr>
+  <tr><td>npm</td><td>CLI distribution</td><td>Free (public)</td></tr>
+  <tr><td>GitHub</td><td>Source code + Actions</td><td>Free (public)</td></tr>
+  <tr><td><strong>Total</strong></td><td></td><td><strong>$0/mo</strong></td></tr>
+</table>
+
+<p>The only cost that scales is the DeepSeek API — and even then, at $0.00002 per review, you'd need to review 50,000 PRs before spending $1.</p>
+
+<h2>The GitHub App: Full Automation in ~200 Lines</h2>
+
+<p>Critiq also runs as a <strong>GitHub App</strong> for automated PR review. When someone opens or updates a PR, a Cloudflare Worker receives the webhook and processes it automatically.</p>
+
+<p>The authentication flow is worth highlighting because it's surprisingly elegant with <strong>zero npm dependencies</strong>:</p>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">JWT generation — native Web Crypto</div>
+  </div>
+  <pre><span class="k">async function</span> createAppJWT(appId, privateKeyPEM) {
+  <span class="k">const</span> now = Math.floor(Date.now() / 1000)
+  <span class="k">const</span> payload = { iat: now - 60, exp: now + 600, iss: appId }
+  <span class="c">// RS256 sign using Web Crypto — 100% native</span>
+  <span class="k">const</span> key = await crypto.subtle.importKey(
+    <span class="s">'pkcs8'</span>, pemToArrayBuffer(privateKeyPEM),
+    { name: <span class="s">'RSASSA-PKCS1-v1_5'</span>, hash: <span class="s">'SHA-256'</span> },
+    <span class="k">false</span>, [<span class="s">'sign'</span>]
+  )
+  <span class="k">const</span> sig = await crypto.subtle.sign(<span class="s">'RSASSA-PKCS1-v1_5'</span>, key, ...)
+  <span class="k">return</span> `${headerB64}.${payloadB64}.${b64url(sig)}`
+}</pre>
+</div>
+
+<p>The Worker verifies incoming webhooks with <strong>constant-time HMAC comparison</strong> (preventing timing attacks), exchanges the JWT for an installation access token, fetches the PR diff, runs the review, and posts inline comments back to the PR — all within Cloudflare's Worker runtime, all serverless.</p>
+
+<h2>What Critiq Doesn't Do Well</h2>
+
+<p>Honesty matters, so let me be up front about the limitations:</p>
+
+<ol>
+  <li><strong>Language-dependent</strong> — While Critiq is language-agnostic in theory, the prompt emphasizes "real bugs and security." It works best on Python, JavaScript/TypeScript, Rust, and Go — languages where the AI model has strong training data. For niche languages, results are less reliable.</li>
+  <li><strong>No context awareness</strong> — Critiq reviews each diff in isolation. It doesn't understand your project's architecture, coding conventions, or business logic. A review that looks "safe" in isolation might violate your project's patterns.</li>
+  <li><strong>Chinese-first output</strong> — Critiq writes reviews in Chinese by default. This is a deliberate choice (there isn't a good Chinese AI code review tool), but it means monolingual English users get mixed-language output. Easy to fix — just change the prompt. But you have to know to do it.</li>
+  <li><strong>No learning loop</strong> — Critiq doesn't learn from your feedback (yet). Each review is independent. If you keep rejecting a certain type of comment, there's no mechanism to adjust future reviews.</li>
+</ol>
+
+<h2>Why Open Source?</h2>
+
+<p>Critiq is MIT-licensed on <a href="https://github.com/DrfterX/critiq">GitHub</a>. The npm package is <a href="https://www.npmjs.com/package/critiq-cli">critiq-cli</a>.</p>
+
+<p>I believe AI code review should be:</p>
+<ul>
+  <li><strong>Accessible</strong> — no paywall to get a second opinion on your code</li>
+  <li><strong>Private</strong> — you control what diff gets sent to which API</li>
+  <li><strong>Honest</strong> — a tool that says "looks clean" when there's nothing to flag is more valuable than one that invents issues to justify its existence</li>
+</ul>
+
+<h2>Try It Now</h2>
+
+<div class="code-block">
+  <div class="cb-header">
+    <div class="cb-dots"><div class="cb-dot" style="background:#ff5f57"></div><div class="cb-dot" style="background:#febc2e"></div><div class="cb-dot" style="background:#28c840"></div></div>
+    <div class="cb-label">Usage</div>
+  </div>
+  <pre><span class="o">$</span> git diff HEAD | npx critiq-cli
+<span class="o">$</span> git diff main -- myfile.ts | npx critiq-cli --pr-title "My changes"
+<span class="o">$</span> git diff HEAD | npx critiq-cli --json | jq '.comments'</pre>
+</div>
+
+<p>One command. No signup. No configuration beyond setting <code>CRITIQ_API_KEY</code> (any OpenAI-compatible API key works).</p>
+
+<p>The response arrives in 1-3 seconds. If you get 0 comments, that doesn't mean Critiq failed — it means your code is clean.</p>
+
+<p><strong>That's the point.</strong></p>
+
+<hr>
+
+<h2>Technical Takeaways</h2>
+
+<p>If you're building your own AI dev tool, here's what I learned:</p>
+
+<ol>
+  <li><strong>Restraint is the feature.</strong> In an AI tool, what you choose <em>not</em> to say defines the user experience more than what you do say. A tool that confidently says "looks good" builds more trust than one that always finds something.</li>
+  <li><strong>Serverless is viable for AI apps.</strong> Cloudflare Workers + D1 + KV can handle tens of thousands of daily AI API calls on the free tier. The request size constraints (100KB body, 10ms CPU per request) aren't blockers when your "heavy lifting" is an external API call.</li>
+  <li><strong>Model-agnostic pays off.</strong> The ability to swap models via environment variables means you can start with cheap models and upgrade when the economics make sense — without code changes.</li>
+  <li><strong>Single-file CLI is underrated.</strong> A 9KB self-contained executable that requires zero setup is a powerful distribution model. Developers love <code>npx</code> and <code>brew install</code>. They hate "create an account, create an API key, install the app, configure permissions..."</li>
+</ol>
+
+<hr>
+
+<p><em>Critiq is available on <a href="https://github.com/DrfterX/critiq">GitHub</a> and <a href="https://www.npmjs.com/package/critiq-cli">npm</a>. Star it if you find it useful. PRs welcome — especially for improving support in more languages.</em></p>
+
+  </div>
+</article>
+
+<div class="article-footer">
+  <a class="back-link" href="/">← Back to Critiq Home</a>
+  <div class="share">
+    <span style="color:var(--text-lo)">Share:</span>
+    <a href="https://twitter.com/intent/tweet?text=Building%20Critiq%3A%20A%20%240%2Fmo%20AI%20Code%20Review%20Agent&url=https%3A%2F%2Fcritiq.pages.dev%2Fblog%2F" target="_blank">Twitter</a>
+    <a href="https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fcritiq.pages.dev%2Fblog%2F&t=Building%20Critiq%3A%20A%20%240%2Fmo%20AI%20Code%20Review%20Agent" target="_blank">HN</a>
+    <span style="color:var(--text-lo)">·</span>
+    <span style="color:var(--text-lo)">Also on <a href="https://dev.to/">dev.to</a> (coming soon — need API key)</span>
+  </div>
+</div>
+
+<footer>
+  <div class="f-inner">
+    <div class="f-links">
+      <a href="/">Home</a>
+      <a href="/blog/">Blog</a>
+      <a href="https://github.com/DrfterX/critiq" target="_blank">GitHub</a>
+      <a href="https://github.com/DrfterX/critiq/issues" target="_blank">Issues</a>
+    </div>
+    <div class="f-copy">
+      Critiq — /* AI code review that respects your inbox */<br>
+      © 2026 Auto Company · Built with DeepSeek · Open Source · Zero bullshit
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('pre code').forEach(block => {
+    block.innerHTML = block.innerHTML.replace(/^\s+/gm, m => {
+      const indent = m.match(/^ {2}/) ? '  ' : m
+      return indent
+    })
+  })
+  // Scroll reveal
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.style.opacity = '1'
+        entry.target.style.transform = 'translateY(0)'
+      }
+    })
+  }, { threshold: 0.1 })
+  document.querySelectorAll('h2, h3, .code-block, table, blockquote').forEach(el => {
+    el.style.opacity = '0'
+    el.style.transform = 'translateY(12px)'
+    el.style.transition = 'all .6s cubic-bezier(.22,1,.36,1)'
+    observer.observe(el)
+  })
+</script>
+</body>
+</html>

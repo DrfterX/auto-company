@@ -1,0 +1,60 @@
+diff --git a/src/auth.ts b/src/auth.ts
+index a1b2c3d..e4f5g6h 100644
+--- a/src/auth.ts
++++ b/src/auth.ts
+@@ -10,7 +10,7 @@ export function validateToken(token: string): boolean {
+     return false;
+   }
+
+-  const payload = JSON.parse(atob(token.split('.')[1]));
++  const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+   return payload.exp > Date.now() / 1000;
+ }
+
+diff --git a/src/api/users.ts b/src/api/users.ts
+index 7h8i9j0..k1l2m3n 100644
+--- a/src/api/users.ts
++++ b/src/api/users.ts
+@@ -1,11 +1,23 @@
+ import { Router } from 'express';
+-import { db } from '../db';
+
+ const router = Router();
+
+-router.get('/users/:id', async (req, res) => {
+-  const user = await db.query(
+-    `SELECT * FROM users WHERE id = '${req.params.id}'`
+-  );
+-  res.json(user.rows[0]);
++interface User {
++  id: number;
++  name: string;
++  email: string;
++  role: string;
++}
++
++router.get('/users/:id', async (req, res) => {
++  const { id } = req.params;
++  const result = await db.query(
++    'SELECT id, name, email, role FROM users WHERE id = $1',
++    [id]
++  );
++
++  if (result.rows.length === 0) {
++    return res.status(404).json({ error: 'User not found' });
++  }
++  res.json(result.rows[0]);
+ });
+diff --git a/src/utils/cache.ts b/src/utils/cache.ts
+index o0p1q2r..s3t4u5v 100644
+--- a/src/utils/cache.ts
++++ b/src/utils/cache.ts
+@@ -1,6 +1,6 @@
+ const cache = new Map<string, { data: unknown; expiry: number }>();
+
+ export function getCached(key: string): unknown | undefined {
+-  const entry = cache.get(key);
++  const entry = cache.get(key.padEnd(64, ' '));
+   if (!entry) return undefined;
+   if (Date.now() > entry.expiry) {
+     cache.delete(key);

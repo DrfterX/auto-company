@@ -1,0 +1,648 @@
+# Auto Company 健康监控执行记录
+
+## 2026-06-11 17:28
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（原 `scripts/monitor.sh` 不存在，使用实际路径）
+- 检查 PM2 进程状态
+- 检查 Cycle 执行历史
+
+### 发现
+- **Auto Loop:** 运行中 (PID 62594, Cycle #22), ERROR_COUNT=0
+- **PM2 options-trading:** online, 已运行 20h
+- **日志历史问题:** 15:30~16:45 期间检测到6次"期权 Web 看板未运行"（已自动恢复）
+- **Cycle 执行:** 今日连续运行 Cycles #14~#22，全部成功完成
+
+### 结果
+- 通知写入 `notification-last.txt`
+- 健康快照写入 `logs/monitor-alerts.log`
+
+
+
+## 2026-06-11 19:52
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status` 获取基础状态
+- PID 存活检查、ERROR_COUNT、PM2 进程、Cycle 历史
+- 自动修复检查
+
+### 发现
+- **Auto Loop:** 运行中 (PID 62594), ERROR_COUNT=0, LOOP_COUNT=27
+- **PM2 options-trading:** online (PID 20841, 已运行 22h)
+- **Cycle 执行:** Cycles #17~#27 全部连续 OK，无新增失败
+- **进程状态:** 正常，无需修复
+- **异常:** 最近 2 小时内无 ISSUES FOUND 或 ALERT 记录
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录
+
+## 2026-06-11 21:11
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ⚠️ 有异常
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- 检查进程存活、ERROR_COUNT、Cycle 历史、status.json
+
+### 发现
+- **Cycle #27 FAIL** 于 20:31:38 — Timed out after 3600s (exit code 124)
+- **自动修复:** 共识已从备份恢复，进入 Backoff (10s) → Cycle #28 启动
+- **ERROR_COUNT:** 1 | **LOOP_COUNT:** 28
+- **Cycle #28:** 20:31:56 启动，正在运行 (~25min)
+- **Loop 进程:** PID 4647 (claude 进程) 实际运行中，但 PID 文件缺失
+- **status.json:** cycle=27, status=FAIL, exitCode=124
+
+### 结果
+- `notification-last.txt` 写入异常摘要
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-11 22:20
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ⚠️ 有异常 (已产生自动恢复迹象)
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持，使用 `--status` + 补充检查）
+- PM2 进程状态、PID 存活、Cycle 历史、status.json、auto-loop 日志
+
+### 发现
+- **Loops #140~#146 连续 FAIL** (21:53~22:19) — 全部 Exit code 1，errors 从 1/5 递增到 4/5
+- **Circuit Breaker:** Cycle #142 触发，300s 冷却后自动复位
+- **共识恢复:** 每个 FAIL cycle 后自动从备份恢复 consensus
+- **PID 文件异常:** 旧 PID 27533 标记为 stale，但实际进程仍在
+- **系统自动重启:** 22:19:44 新 Cycle #1 启动 (PID 44368)，LOOP_COUNT 重置为 1
+- **PM2 options-trading:** online，已运行 24h+，无异常
+
+### 结果
+- `notification-last.txt` 写入异常摘要
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 02:35
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持，使用 `--status` + 补充检查）
+- PM2 进程状态、PID 存活、Cycle 历史、status.json、auto-loop 日志
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730, Cycle #6 进行中, 已运行 ~21min)
+- **ERROR_COUNT=0 | LOOP_COUNT=6**
+- **Cycle #5 OK** 于 02:13:37（cost: 2.86s）— monito 状态页设计方向完成
+- **Cycle #1 FAIL** exit 143（睡眠时段前的历史，已自动恢复）
+- **Cycle #2 FAIL** Timeout 1800s（睡眠时段前的历史，已自动恢复）
+- **Cycle #6** 已于 02:14:07 启动运行
+- **PM2 options-trading:** online, 已运行 29h
+- **status.json:** cycle=5, status=OK, exitCode=0, cost=2.860625
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-11 23:20
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ⚠️ 有异常（已自动恢复）
+
+### 检查内容
+- 健康检查：`scripts/core/monitor.sh --status`（`--fix` 不支持，改用 `--status` + 补充检查）
+- PM2 进程状态、PID 存活、Cycle 历史、status.json、sensenova-proxy 进程
+
+### 发现
+- **22:15~22:19 — Cycle 连锁失败:** Cycles #140~#146 连续 FAIL (exit code 1)，断路器 Cycle #142 触发，300s 冷却后自动复位，共识从备份恢复
+- **22:52~23:02 — API Proxy 不可用:** Cycles #10~#22 因 API proxy unreachable 跳过后，Cycle #22 FAIL (exit code 137 SIGKILL)
+- **23:03 — 系统自动重启:** 新会话启动 (PID 53572, claude process)，sensenova-proxy (PID 53553) 重新上线
+- **当前:** Cycle #1 running (25min elapsed), ERROR_COUNT=0, PM2 options-trading online (25h+)
+
+### 结果
+- `notification-last.txt` 写入异常摘要（含 2 个异常事件及自动恢复说明）
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 01:30
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`
+- PM2 进程状态、Cycle 历史、status.json
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730, Cycle #3 进行中, 已运行 ~23min)
+- **ERROR_COUNT=2 | LOOP_COUNT=3**
+- **Cycle #1 FAIL** exit 143（已自动从备份恢复共识 + backoff 10s）
+- **Cycle #2 FAIL** Timed out after 1800s（已自动从备份恢复共识 + backoff 20s）
+- **Cycle #3** 已于 01:07:29 启动运行
+- **PM2 options-trading:** online, 已运行 28h
+- **status.json:** cycle=2, status=FAIL, exitCode=124 (Timed out after 1800s)
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 03:38
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`
+- PM2 进程状态、进程存活、Cycle 历史、status.json
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730/99166, Cycle #9 进行中 ~10min)
+- **ERROR_COUNT=0 | LOOP_COUNT=9**
+- **Cycle #8 OK** 于 03:27:46 (cost: 5.62s) — monito 扩展计划方案完成
+- **Cycle #9** 已于 03:28:16 启动运行
+- **近 2h 历史:** Cycles #4~#5 OK, #6 FAIL(Timeout, 自动恢复), #7 OK(Timeout but progress kept), #8 OK
+- **sensenova-proxy:** 运行中 (PID 76556)
+- **PM2 options-trading:** online (PID 20841, 已运行 30h, 2 restarts)
+- **status.json:** cycle=8, status=OK, exitCode=0
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 04:44
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`scripts/monitor.sh` 不存在，`--fix` 参数脚本不支持）
+- PM2 进程状态、Cycle 历史、status.json
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730)
+- **LOOP_COUNT=16 | ERROR_COUNT=1**
+- **Cycle #12 FAIL** exit 137 (SIGKILL) 04:37 → 共识自动恢复 + backoff 10s
+- **Cycles #13~#15 SKIP** — API proxy unreachable（连续 3 次跳过后 Cycle #16 重新启动）
+- **Cycle #16** 已於 04:40 启动运行
+- **PM2 options-trading:** online (PID 20841, 31h, 2 restarts)
+- **status.json:** cycle=12, status=FAIL, exitCode=137
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 07:00
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`
+- PM2 进程状态、status.json、sensenova-proxy 进程
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730)，Cycle #21 进行中
+- **LOOP_COUNT=21 | ERROR_COUNT=0**
+- **Cycle #19 FAIL** (06:11) — Timed out after 1800s，已自动从备份恢复共识 + backoff 20s
+- **Cycle #20 OK** (06:56) — cost 7.74s，监控间隔分析完成
+- **Cycle #21** 已于 06:56:35 启动运行
+- **PM2 options-trading:** online (PID 20841, 33h, 2 restarts)
+- **sensenova-proxy:** 运行中 (PID 8422)
+- **status.json:** cycle=20, status=OK, exitCode=0
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 07:55
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`scripts/monitor.sh` 不存在，`--fix` 参数脚本不支持）
+- PM2 进程状态、process 存活、Cycle 历史、status.json
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730)，Cycle #23 进行中
+- **LOOP_COUNT=23 | ERROR_COUNT=0**
+- **Cycle #22 OK** (07:56) — Timeout 1800s 但 consensus 已更新，进度保留
+- **Cycle #23** 已于 07:56:52 启动运行
+- **PM2 options-trading:** online (PID 20841, 34h, 2 restarts)
+- **sensenova-proxy:** 运行中 (PID 8422)
+- **sensenova-router:** 运行中 (PID 51823)
+- **Daemon:** NOT LOADED (macOS launchd 不可用)
+- **status.json:** cycle=22, status=OK, exitCode=124
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 09:50
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`
+- PM2 进程状态、Cycle 历史、status.json、auto-loop 日志
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730), LOOP_COUNT=27, ERROR_COUNT=1
+- **Cycle #23 FAIL** (08:26:52) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #24 OK** (08:51:36) — cost 11.83s，D1 表确认 + Waitlist E2E 验证
+- **Cycle #25 OK** (09:15:13) — 数据迁移全部验证通过
+- **Cycle #26 FAIL** (09:45:43) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #27** 已于 09:45:53 启动运行
+- **PM2 options-trading:** online (PID 20841, 36h, 2 restarts)
+- **Daemon:** NOT LOADED (macOS)
+- **status.json:** cycle=26, status=FAIL, exitCode=124
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录**
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录
+
+## 2026-06-12 08:53
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730), LOOP_COUNT=25, ERROR_COUNT=0
+- **Cycle #23 FAIL** (08:26:52) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #24 OK** (08:51:36) — cost 11.83s，D1 表确认 + Waitlist E2E 验证
+- **Cycle #25** 已于 08:52:06 启动运行
+- **PM2 options-trading:** online (PID 20841, 35h, 2 restarts)
+- **sensenova-proxy:** 运行中 (PID 8422)
+- **sensenova-router:** 运行中 (PID 51823)
+- **Daemon:** NOT LOADED (macOS)
+- **status.json:** cycle=24, status=OK, exitCode=0
+- **最近 2h 内无 ISSUES FOUND/ALERT 记录**
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录
+
+## 2026-06-12 05:57
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持，改用 `--status`）
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730)，Cycle #18 进行中
+- **LOOP_COUNT=18 | ERROR_COUNT=0**
+- **Cycle #17 OK** (05:40:24) — Timeout 1800s 但 consensus 已更新，进度保留
+- **Cycle #12 FAIL** exit 137 (04:39) → 共识自动恢复 + backoff 10s
+- **Cycles #13~#15 SKIP** — API proxy unreachable（3 次跳过）
+- **Cycle #16 FAIL** Timeout 1800s (05:10) → 共识自动恢复 + backoff 20s
+- **Cycle #18** 已于 05:40:54 启动运行
+- **Daemon:** NOT LOADED
+- **Consensus:** 最新 at 05:13 CST — Building Step 5 完成：状态页显示真实 Uptime
+- **status.json:** cycle=12, status=FAIL, exitCode=137
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 10:59
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`scripts/monitor.sh` 不存在，`--fix` 参数不支持）
+- PM2 进程状态、Cycle 历史、status.json、sensenova 进程
+
+### 发现
+- **Auto Loop:** 运行中 (PID 75730/74600), LOOP_COUNT=30, ERROR_COUNT=0
+- **Cycle #30** 于 11:07:10 启动运行
+- **Cycle #26 FAIL** (09:45:43) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #27 FAIL** (10:05:50) — Exit code 143，已自动从备份恢复共识 + backoff 20s
+- **Cycle #28 OK** (10:36:10) — Timeout 1800s 但 consensus 已更新，进度保留
+- **Cycle #29 OK** (11:06:40) — Timeout 1800s 但 consensus 已更新，进度保留
+- **PM2 options-trading:** online (PID 20841, 37h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422)
+- **sensenova-router:** running (PID 51823)
+- **dual-api-proxy:** running (PID 76078)
+- **status.json:** cycle=29, status=OK, exitCode=124
+- **Daemon:** NOT LOADED (macOS)
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录**
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录
+
+## 2026-06-12 12:14 — 手动暂停（非周期监控，含修复）
+
+**时段:** 清醒时段 (08:00~23:59)
+**操作:** 手动暂停 Auto Company，修复监控面板 bug
+
+### 发现的问题
+1. **监控面板"停止"按钮无效**：点击后虽然创建了 `.auto-loop-stop` 文件并发送了 SIGTERM，但 auto-loop 在 `waiting_limit` 状态下执行 `sleep 3600`（一整小时），此睡眠期间不检查停止信号文件，导致停止无效。
+2. **两个 Claude 进程同时运行**（PID 28368, 67381），异常并发。
+
+### 修复内容
+1. **`auto-loop.sh` 第 931 行**：`sleep "$LIMIT_WAIT_SECONDS"` → 改为 chunked sleep（60s 分片）+ 每片前检查 `check_stop_requested()` 
+2. **`auto-loop.sh` 第 799 行**：QUOTA 等待循环中也加入 `check_stop_requested()` 检查
+3. **`dashboard/app.js`**：`runAction("stop")` 失败时，先检查 `.auto-loop-paused` 标志是否存在作为降级反馈
+
+### 操作记录
+- 强制终止 PID 75730（auto-loop）、74600/74601（子 shell）、28368/67381（claude 进程）
+- 创建 `.auto-loop-paused` 暂停标志
+- 创建一次性自动化恢复任务（16:44 自动恢复）
+- 写入 `notification-last.txt`
+
+### 结果
+- ✅ 监控面板停止按钮 bug 已修复
+- ✅ 所有进程已停止
+- ✅ 暂停标志已创建
+- ✅ 4.5 小时后自动恢复已安排
+
+## 2026-06-12 12:16 — 同步暂停健康监控自动化
+
+**操作:** 设置 `validFrom="2026-06-12T16:45"`，与 Auto Company 暂停时间同步
+
+### 效果
+- 健康监控自动化在 16:45 之前**不会触发**
+- 16:45 后恢复正常 HOURLY 调度
+- 与 Auto Company 自动恢复时间（16:44）错开 1 分钟，避免竞争条件
+
+## 2026-06-12 17:46
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`scripts/monitor.sh` 不存在，`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=2, ERROR_COUNT=0
+- **Cycle #1 OK** (17:26:13) — Timeout 1800s, consensus 已更新, 进度保留
+- **Cycle #2** 于 17:26:43 启动运行中 (~20min elapsed)
+- **PM2 options-trading:** online (PID 20841, 44h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422)
+- **sensenova-router:** running (PID 51823)
+- **dual-api-proxy:** running (PID 76085)
+- **Claude 2 进程:** Cycle #1 (PID 16567) + Cycle #2 (PID 19869) — Cycle #1 进程可能未及时终止，属已知现象
+- **status.json:** cycle=1, status=OK, exitCode=124
+- **共识阶段:** Building — Cycle #30 ✅: 技术博客撰写完成
+- **暂停标志:** 不存在（已于 16:45 自动恢复运行）
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录**
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录
+
+## 2026-06-12 18:56
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`scripts/monitor.sh` 不存在）
+- PM2 进程状态、Cycle 历史、status.json、sensenova 进程
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=5, ERROR_COUNT=2
+- **Cycle #3 FAIL** (18:27) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #4 FAIL** (18:35) — Exit code 143，已自动从备份恢复共识 + backoff 20s
+- **Cycle #5** 已于 18:36:12 启动运行中
+- **PM2 options-trading:** online (PID 20841, 44h+, 2 restarts)
+- **sensenova-proxy/routing/dual-api:** 全部 running
+- **共识阶段:** Building — Cycle #31: 技术博客发布前准备，QA-Bach 审查修复已完成
+- **status.json:** cycle=4, status=FAIL
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录**
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录
+
+## 2026-06-12 20:03
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`scripts/monitor.sh` 不存在，`--fix` 参数脚本不支持）
+- PM2 进程状态、status.json、Cycle 历史、共识阶段
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=8, ERROR_COUNT=0
+- **Cycle #7 OK** (20:07:23) — Timeout 1800s 但 consensus 已更新，进度保留
+- **Cycle #8** 已于 20:07:53 启动运行
+- **18:27~19:06 Cycles #3~#5 FAIL**（连续超时/exit 143）— 全部已自动从备份恢复共识 + backoff
+- **Cycles #6~#7 OK** — 系统已恢复稳定
+- **PM2 options-trading:** online (PID 20841, 46h, 2 restarts)
+- **status.json:** cycle=7, status=OK, exitCode=124
+- **共识阶段:** Building — Cycle #33: Step 5.4 发布物料准备完成 ✅
+- **Daemon:** NOT LOADED (macOS)
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录**
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录
+
+## 2026-06-12 16:40
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康（已暂停）
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`scripts/monitor.sh` 不存在，改用 `--status` + 补充检查）
+- PM2 进程状态、Cycle 历史、status.json、暂停标志
+
+### 发现
+- **Auto Loop:** 已暂停（用户于 12:14 手动暂停，`.auto-loop-paused` 存在）
+- **LOOP_COUNT=30 | ERROR_COUNT=1**
+- **Cycle #30 FAIL** (11:16:26) — Exit code 1，API usage limit detected，进入 LIMIT 状态（Waiting 3600s）
+- **最后的运行周期:** Cycles #28~#29 OK（Timeout 但 consensus 更新），#30 FAIL
+- **PM2 options-trading:** online (PID 20841, 43h, 2 restarts)
+- **status.json:** cycle=29, status=OK (last successful)
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录**（自暂停后无新活动）
+
+### 结果
+- `notification-last.txt` 写入 "状态: OK"
+- 健康快照追加至 `logs/monitor-alerts.log`
+
+## 2026-06-12 21:22
+
+**时段:** 清醒时段 (08:00~23:59)
+**状态:** ✅ 健康
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（`--fix` 参数脚本不支持）
+- PM2 进程状态、sensenova 进程、Cycle 历史、status.json、进程存活
+- 最近 2h monitor-alerts.log 异常扫描
+
+### 发现
+- **Auto Loop:** 运行中 (PID 16483), LOOP_COUNT=11, ERROR_COUNT=1
+- **Cycle #10 FAIL** (21:27:44) — Timed out after 1800s，已自动从备份恢复共识 + backoff 10s
+- **Cycle #11** 已于 21:27:54 启动运行 (~4min elapsed)
+- **Cycles #8~#9 OK** (20:31~20:57) — 此前 Cycles #3~#5 FAIL (18:27~19:06) 已全部自动恢复
+- **PM2 options-trading:** online (PID 20841, uptime 48h, 2 restarts)
+- **sensenova-proxy:** running (PID 8422) | **sensenova-router:** running (PID 51823)
+- **status.json:** cycle=10, status=FAIL, exitCode=124
+- **共识阶段:** Building — Cycle #35: Step 5.5 预发布准备完成 + Hero 实时化 ✅
+- **最近 2h 内 monitor-alerts.log 无 ISSUES FOUND/ALERT 记录

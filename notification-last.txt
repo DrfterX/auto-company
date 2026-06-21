@@ -1,0 +1,38 @@
+=== 2026-06-21 08:01 — Auto Company 健康检查 ===
+
+🔵 系统状态：运行中
+- PID: 9852 | LOOP_COUNT=332 | ERROR_COUNT=0 | STATUS=idle
+- Daemon: LOADED (com.autocompany.loop)
+- Engine: claude
+
+✅ LOOP 存活
+✅ Daemon 加载
+✅ ERROR_COUNT=0
+⚠️ 最近的 429 事件（07:19:55 Cycle #310）→ 已自动 Key 轮换 + 3600s backoff → 后续周期恢复 OK
+
+📋 项目活动摘要（自 2026-06-20T08:01:40+08:00 至 2026-06-21T08:01:11+08:00）
+
+⏱ 总周期数：335（OK: 297, FAIL: 38）
+   FAIL 明细：Exit code 143 (SIGTERM): ~18, 超时 900s: ~7, API 429: ~10, PARTIAL(429): 3
+🔄 API Key 轮换事件：13 次（全部为 429 自动轮换）
+📌 当前共识：P0 — N 型结构算法定义修正 + 期权 Greeks 现金化原则（6/21 确立）
+
+=== 周期产出明细 ===
+自 session 启动（06-20 09:36）以来，系统主要处于 Holding 模式：
+- Cycle #2~#ex: 遗留 session (#473~#475) 产出遗留
+- Cycle #1(#新): 冷启动 3600s 共识恢复
+- Cycle #9~#335: Holding 健康检查循环（第 133 轮）
+
+=== 关键成果 ===
+- Railway 备份自动接管：本地 5100 离线时 Railway 自动接管 ✅
+- consensus.md 验证失败 auto-recovery 机制正常运行
+- 429 限流 → 自动 Key 轮换 + 3600s backoff → 后续自动恢复
+- 期权 Greeks 现金化原则（2026-06-21 确立）
+
+=== 异常记录（当前 session）===
+- Cycle #1: 冷启动 3600s 超时（标记为 OK，共识已更新）
+- Cycle #9/16/22/25/34/36/65/80/85/89/92/96/100/105/107/115/185: Exit 143 (SIGTERM)
+- Cycle #35/88/106/110/127/128/174: 超时 900s FAIL
+- Cycle #19/125/178: 429 限流 PARTIAL（共识部分更新，保留进度）
+- Cycle #310: 429 限流 FAIL → 自动 Key 轮换→ #311 恢复 OK
+- 其他 429: #101/203/217/239/249/287/317/361/385/405/432/448/451

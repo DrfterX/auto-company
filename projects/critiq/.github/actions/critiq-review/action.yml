@@ -1,0 +1,121 @@
+# ===========================================================================
+# Critiq — GitHub Action for AI-powered Code Review
+# ===========================================================================
+# A composite action that runs Critiq on every PR, posts inline review
+# comments and a summary, and optionally fails CI on critical issues.
+#
+# Usage:
+#   - name: Critiq Review
+#     uses: ./.github/actions/critiq-review
+#     with:
+#       api-key: ${{ secrets.CRITIQ_API_KEY }}
+#       github-token: ${{ secrets.GITHUB_TOKEN }}
+# ===========================================================================
+
+name: 'Critiq Review'
+description: 'AI-powered code review for pull requests using Critiq'
+
+author: 'Auto Company'
+
+inputs:
+  api-key:
+    description: |
+      API key for the LLM provider (e.g., DeepSeek, OpenAI).
+      Falls back to CRITIQ_API_KEY env var, then DEEPSEEK_API_KEY.
+    required: false
+    default: ''
+  github-token:
+    description: |
+      GitHub token with pull requests: write scope.
+      Typically ${{ secrets.GITHUB_TOKEN }}.
+    required: true
+    default: ''
+  fail-on-issues:
+    description: |
+      When 'true', the CI step fails if Critiq finds critical issues.
+    required: false
+    default: 'false'
+  critiq-path:
+    description: |
+      Relative or absolute path to the Critiq project root
+      (where package.json lives). Defaults to ..
+    required: false
+    default: ''
+
+outputs:
+  comment-count:
+    description: Number of review comments posted
+    value: ${{ steps.set-outputs.outputs.comment-count }}
+  overall-score:
+    description: Overall code quality score (1-10)
+    value: ${{ steps.set-outputs.outputs.overall-score }}
+  critical-count:
+    description: Number of critical findings
+    value: ${{ steps.set-outputs.outputs.critical-count }}
+
+runs:
+  using: 'composite'
+
+  steps:
+    # ── 1. Setup Node ──
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    # ── 2. Resolve Critiq path ──
+    - name: Resolve Critiq path
+      id: resolve-path
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.critiq-path }}" ]; then
+          echo "path=${{ inputs.critiq-path }}" >> "$GITHUB_OUTPUT"
+        elif [ -f "./package.json" ]; then
+          echo "path=${{ github.workspace }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "path=${{ github.workspace }}" >> "$GITHUB_OUTPUT"
+        fi
+
+    # ── 3. Build Critiq CLI (if not already built) ──
+    - name: Build Critiq CLI
+      shell: bash
+      working-directory: ${{ steps.resolve-path.outputs.path }}
+      run: |
+        if [ ! -f "dist/cli.js" ] || [ "src/cli.ts" -nt "dist/cli.js" ]; then
+          echo "::group::Building Critiq CLI"
+          npm ci --no-audit --no-fund
+          node build.mjs
+          echo "::endgroup::"
+        else
+          echo "Critiq CLI already built — skipping build."
+        fi
+
+    # ── 4. Run Critiq Review ──
+    - name: Run Critiq Review
+      id: critiq
+      shell: bash
+      env:
+        API_KEY: ${{ inputs.api-key || env.CRITIQ_API_KEY || env.DEEPSEEK_API_KEY }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        FAIL_ON_ISSUES: ${{ inputs.fail-on-issues }}
+        CRITIQ_DIR: ${{ steps.resolve-path.outputs.path }}
+        REVIEW_SCRIPT: ${{ github.action_path }}/review.sh
+      run: |
+        chmod +x "$REVIEW_SCRIPT"
+        "$REVIEW_SCRIPT"
+        echo "status=$?" >> "$GITHUB_OUTPUT"
+
+    # ── 5. Set outputs ──
+    - name: Set outputs
+      shell: bash
+      id: set-outputs
+      run: |
+        if [ -f /tmp/critiq-result.json ]; then
+          echo "comment-count=$(jq '.comments | length' /tmp/critiq-result.json)" >> "$GITHUB_OUTPUT"
+          echo "overall-score=$(jq '.overallScore // 0' /tmp/critiq-result.json)" >> "$GITHUB_OUTPUT"
+          echo "critical-count=$(jq '[.comments[] | select(.severity == "critical")] | length' /tmp/critiq-result.json)" >> "$GITHUB_OUTPUT"
+        else
+          echo "comment-count=0" >> "$GITHUB_OUTPUT"
+          echo "overall-score=0" >> "$GITHUB_OUTPUT"
+          echo "critical-count=0" >> "$GITHUB_OUTPUT"
+        fi

@@ -1,0 +1,51 @@
+name = "critiq"
+main = "src/index.ts"
+# wrangler runs from projects/critiq/ directory in CI
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# KV stores
+[[kv_namespaces]]
+binding = "PR_STATE"
+id = "f2a6bebfbd604381a5f189ba8d52a102"
+preview_id = "f2a6bebfbd604381a5f189ba8d52a102"
+
+[[kv_namespaces]]
+binding = "COMMENT_CACHE"
+id = "31dbd022f97e4ee2bbc0edf7e5ad645a"
+preview_id = "31dbd022f97e4ee2bbc0edf7e5ad645a"
+
+# D1 database
+[[d1_databases]]
+binding = "DB"
+database_name = "critiq-db"
+database_id = "706a274c-f523-48eb-aa36-eba58f4c6e12"
+
+# R2 bucket for review artifact storage (enable R2 in Cloudflare Dashboard first)
+# [[r2_buckets]]
+# binding = "REVIEW_ARTIFACTS"
+# bucket_name = "critiq-review-artifacts"
+
+[vars]
+ENVIRONMENT = "production"
+DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
+DEEPSEEK_MODEL = "deepseek-chat"
+GITHUB_APP_NAME = "critiq"
+GITHUB_APP_URL = "https://github.com/apps/critiq"
+
+# Secrets (set via wrangler secret put)
+# DEEPSEEK_API_KEY
+# GITHUB_APP_PRIVATE_KEY
+# GITHUB_APP_WEBHOOK_SECRET
+# GITHUB_APP_ID
+# SESSION_SECRET
+
+[env.staging]
+name = "critiq-staging"
+[env.staging.vars]
+ENVIRONMENT = "staging"
+
+[env.production]
+name = "critiq"
+[env.production.vars]
+ENVIRONMENT = "production"
