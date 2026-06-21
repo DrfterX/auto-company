@@ -9,5 +9,6 @@
 [verify]   N-structure data valid
 [verify]   swing_points data valid
 [verify] 5/5 Diff sanity check...
+[verify]   WARNING: Large diff (768 lines) — verify carefully
 
 VERIFY: PASS
