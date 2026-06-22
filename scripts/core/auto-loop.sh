@@ -594,11 +594,18 @@ extract_cycle_metadata() {
                 CYCLE_IS_ERROR=1
             fi
 
-            # Extract HTTP status for precise quota detection (only 429 = real exhaustion)
+            # Extract HTTP status for precise quota detection
             CYCLE_API_STATUS=0
             parsed_api_status=$(echo "$RESULT_MESSAGE" | jq -r '.api_error_status // empty' 2>/dev/null || true)
             if [ -n "$parsed_api_status" ] && [ "$parsed_api_status" != "null" ]; then
                 CYCLE_API_STATUS="$parsed_api_status"
+            fi
+
+            # Extract limit_type for 429 discrimination (rpm vs quota)
+            CYCLE_LIMIT_TYPE=""
+            parsed_limit_type=$(echo "$RESULT_MESSAGE" | jq -r '.limit_type // empty' 2>/dev/null || true)
+            if [ -n "$parsed_limit_type" ] && [ "$parsed_limit_type" != "null" ]; then
+                CYCLE_LIMIT_TYPE="$parsed_limit_type"
             fi
 
             parsed_type=$(echo "$RESULT_MESSAGE" | jq -r '.type // empty' 2>/dev/null || true)
@@ -1066,6 +1073,7 @@ fi
 loop_count=0
 error_count=0
 error_chain=0
+subtask_breakdown_flag=0
 api_health_fail_count=0
 idle_skip_count=0
 ALL_KEYS_EXHAUSTED=0
@@ -1221,6 +1229,25 @@ $CONSENSUS
 
 This is Cycle #$loop_count. Act decisively."
 
+    # ── Inject subtask breakdown prefix if previous cycle hit max-turns ──
+    if [ "$subtask_breakdown_flag" = "1" ]; then
+        FULL_PROMPT="## ⚠️ BREAKDOWN MODE — Previous cycle ran out of turns
+
+The task is too large. You MUST:
+1. Read the Next Action below
+2. Break it into ~3 numbered subtasks
+3. Execute ONLY subtask #1 this cycle
+4. End with partial result: what was done + what remains for next cycle
+
+DO NOT attempt the full task. ONE subtask only.
+
+---
+
+$FULL_PROMPT"
+        subtask_breakdown_flag=0  # reset for next cycle
+    fi
+
+
     # Dynamic timeout: use warmup timeout for early cycles after restart (saves tokens)
     if [ "$loop_count" -le "$WARMUP_CYCLES" ]; then
         CYCLE_TIMEOUT_SECONDS="$WARMUP_TIMEOUT_SECONDS"
@@ -1351,16 +1378,18 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
         error_chain=$((error_chain + 1))
         log_cycle "$loop_count" "FAIL" "$cycle_failed_reason (cost: ${CYCLE_COST}, subtype: ${CYCLE_SUBTYPE}, errors: $error_count/$MAX_CONSECUTIVE_ERRORS)"
 
-        # Check for API auth/limit errors — mark key exhausted and rotate on 429 or 401.
-        # 429 = rate limited (quota exhausted on SenseNova free tier, 5h reset).
-        # 401 = key expired/revoked (won't recover without key renewal).
-        # Both require marking the key dead so rotate_api_key() skips to the next one.
-        log "[DEBUG] CYCLE_API_STATUS=$CYCLE_API_STATUS, CYCLE_IS_ERROR=$CYCLE_IS_ERROR"
+        # ── Subtask breakdown detection ──
+        # Engine ran but hit max-turns (API was fine, no 429/401, cost>0)
+        # → next cycle should break task into smaller pieces
+        if [ "$CYCLE_API_STATUS" = "0" ] && [ "$CYCLE_IS_ERROR" = "1" ] && [ "$CYCLE_COST" != "N/A" ] && [ "$CYCLE_COST" != "0" ]; then
+            subtask_breakdown_flag=1
+            log_cycle "$loop_count" "BREAKDOWN" "Detected max-turns-exceeded. Next cycle will auto-split task into subtasks."
+        fi
+
+        # Check for API auth/limit errors
+        log "[DEBUG] CYCLE_API_STATUS=$CYCLE_API_STATUS, CYCLE_LIMIT_TYPE=$CYCLE_LIMIT_TYPE, CYCLE_IS_ERROR=$CYCLE_IS_ERROR"
         if [ "$CYCLE_API_STATUS" = "429" ] || [ "$CYCLE_API_STATUS" = "401" ]; then
-            # On 429, the agent may have already written partial consensus BEFORE the API cut off.
-            # Only restore from backup if consensus is unchanged or structurally broken.
-            # On 401, consensus can't have been written (API rejected before any LLM work),
-            # so always restore from backup.
+            # Consensus restore: 401 always restore; 429 may keep partial progress
             if [ "$CYCLE_API_STATUS" = "429" ] && validate_consensus && consensus_changed_since_backup; then
                 stamp_consensus_timestamp
                 log_cycle "$loop_count" "PARTIAL" "429 hit but consensus was partially updated — keeping progress"
@@ -1368,30 +1397,35 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
                 restore_consensus
             fi
 
-            # Mark current key exhausted so rotation actually skips to the next one
-            mark_key_exhausted
-            rotate_api_key
+            # ── 429 RPM limit (not quota) ──
+            if [ "$CYCLE_API_STATUS" = "429" ] && [ "$CYCLE_LIMIT_TYPE" = "rpm" ]; then
+                log_cycle "$loop_count" "RPM" "RPM rate limit. Waiting 180s then retry same key..."
+                save_state "waiting_rpm"
+                sleep 180
+                error_count=0
+                error_chain=0
+                continue
+            fi
 
-            local _key_err_label="LIMIT"
-            [ "$CYCLE_API_STATUS" = "401" ] && _key_err_label="AUTH"
-            log_cycle "$loop_count" "$_key_err_label" "API ${CYCLE_API_STATUS} detected. Key rotated. Waiting ${LIMIT_WAIT_SECONDS}s..."
-            save_state "waiting_limit"
-            # Chunked sleep with stop signal checking
-            __wait_remaining=$LIMIT_WAIT_SECONDS
-            while [ "$__wait_remaining" -gt 0 ]; do
-                if check_stop_requested; then
-                    log "Stop requested during usage limit wait. Shutting down gracefully."
-                    cleanup
-                fi
-                if [ "$__wait_remaining" -gt 60 ]; then
-                    sleep 60
-                    __wait_remaining=$((__wait_remaining - 60))
-                else
-                    sleep "$__wait_remaining"
-                    __wait_remaining=0
-                fi
-            done
-            error_count=0
+            # ── 429 quota exhaustion ── rotate key immediately, no wait
+            if [ "$CYCLE_API_STATUS" = "429" ]; then
+                mark_key_exhausted
+                rotate_api_key
+                log_cycle "$loop_count" "QUOTA" "API quota exhausted. Key rotated immediately. Continue..."
+                error_count=0
+                error_chain=0
+                continue
+            fi
+
+            # ── 401 expired key ── rotate immediately, no wait
+            if [ "$CYCLE_API_STATUS" = "401" ]; then
+                mark_key_exhausted
+                rotate_api_key
+                log_cycle "$loop_count" "AUTH" "API 401. Key rotated immediately. Continue..."
+                error_count=0
+                error_chain=0
+                continue
+            fi
             error_chain=0
             continue
         fi

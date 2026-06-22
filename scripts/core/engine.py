@@ -62,6 +62,17 @@ When the task is COMPLETE, output:
 
 If you CANNOT complete: {{"result": "reason", "confidence": 0.0, "needs_human": true}}
 
+## Task Breakdown
+If the task is large, break it into ~3 subtasks and complete only the FIRST one.
+Output the remaining subtasks at the end so the next cycle can continue.
+You have limited turns — don't try to do everything in one cycle.
+
+## Practical Rules
+- Read first, act second. Never edit code you haven't read.
+- If a tool result shows you were wrong, adjust — don't repeat the same tool call.
+- Bash commands: prefer `find` + `grep` over `ls` + manual scanning.
+- Output is TOKEN-EXPENSIVE. Keep tool calls minimal and results concise.
+
 ## Critical
 - NEVER output markdown or explanations outside the JSON
 - NEVER use code fences (```)
@@ -171,9 +182,18 @@ def api_call(model: str, messages: list, max_tokens: int = 8000):
         }
     except urllib.error.HTTPError as e:
         err_body = e.read().decode()
+        # Distinguish 429 types: rpm=rate limit, quota/exhausted=token quota
+        error_type = None
+        if e.code == 429:
+            err_lower = err_body.lower()
+            if "rpm" in err_lower:
+                error_type = "rpm"
+            elif any(k in err_lower for k in ("tpm", "quota", "exhausted", "token plan", "plan limit")):
+                error_type = "quota"
         return {"success": False, "text": "", "input_tokens": 0, "output_tokens": 0,
                 "cost": 0, "elapsed_ms": (time.time() - start) * 1000,
-                "http_status": e.code, "error": err_body[:500]}
+                "http_status": e.code, "error": err_body[:500],
+                "error_type": error_type}
     except Exception as e:
         return {"success": False, "text": "", "input_tokens": 0, "output_tokens": 0,
                 "cost": 0, "elapsed_ms": (time.time() - start) * 1000,
@@ -246,6 +266,7 @@ def main():
     final_result = ""
     is_error = False
     api_status = None
+    limit_type = None
 
     for turn in range(args.max_turns):
         api_turns = turn + 1
@@ -254,6 +275,7 @@ def main():
 
         if not resp["success"]:
             api_status = resp.get("http_status", 0)
+            limit_type = resp.get("error_type", None)  # "rpm" or "quota" or None
             is_error = True
             final_result = f"API error (HTTP {api_status}): {resp.get('error', 'unknown')[:200]}"
             break
@@ -262,6 +284,16 @@ def main():
         total_input += resp["input_tokens"]
         total_output += resp["output_tokens"]
         ai_text = resp["text"].strip()
+
+        # ── Turn-limit awareness ──
+        # When approaching max turns, warn AI to wrap up
+        remaining = args.max_turns - api_turns
+        if remaining <= 3 and remaining > 0:
+            messages.append({"role": "user", "content": 
+                f"You have {remaining} turns remaining. Wrap up now: "
+                "output a final result with what you completed. "
+                "If unfinished, list remaining subtasks in the result so the next cycle can continue. "
+                "Do NOT start new tool calls unless they can complete in 1 turn."})
 
         # Try to parse JSON from AI response
         parsed = extract_json(ai_text)
@@ -297,6 +329,8 @@ def main():
             # Send result back to AI
             messages.append({"role": "assistant", "content": json.dumps(parsed)})
             messages.append({"role": "user", "content": f"Tool {tool_name} result:\n{result}"})
+            # Rate-limit: sleep 3s between tool calls to avoid SenseNova RPM limits
+            time.sleep(3)
             continue
 
         elif "result" in parsed:
@@ -321,6 +355,7 @@ def main():
         "subtype": "success" if not is_error else "error",
         "is_error": is_error,
         "api_error_status": api_status,
+        "limit_type": limit_type,  # "rpm" or "quota" for 429, null otherwise
         "result": final_result,
         "total_cost_usd": round(total_cost, 8),
         "duration_ms": int(total_elapsed),
