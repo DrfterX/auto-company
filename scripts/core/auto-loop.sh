@@ -1377,7 +1377,7 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
             log_cycle "$loop_count" "$_key_err_label" "API ${CYCLE_API_STATUS} detected. Key rotated. Waiting ${LIMIT_WAIT_SECONDS}s..."
             save_state "waiting_limit"
             # Chunked sleep with stop signal checking
-            local __wait_remaining=$LIMIT_WAIT_SECONDS
+            __wait_remaining=$LIMIT_WAIT_SECONDS
             while [ "$__wait_remaining" -gt 0 ]; do
                 if check_stop_requested; then
                     log "Stop requested during usage limit wait. Shutting down gracefully."
