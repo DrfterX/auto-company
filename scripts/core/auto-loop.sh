@@ -58,8 +58,8 @@ WARMUP_TIMEOUT_SECONDS="${WARMUP_TIMEOUT_SECONDS:-300}"
 WARMUP_CYCLES="${WARMUP_CYCLES:-0}"
 RESOLVED_ENGINE_BIN=""
 
-if [ "$ENGINE" != "claude" ] && [ "$ENGINE" != "codex" ]; then
-    echo "Error: ENGINE must be 'claude' or 'codex' (received: '$ENGINE')."
+if [ "$ENGINE" != "claude" ] && [ "$ENGINE" != "codex" ] && [ "$ENGINE" != "engine" ]; then
+    echo "Error: ENGINE must be 'claude', 'codex', or 'engine' (received: '$ENGINE')."
     exit 1
 fi
 
@@ -404,6 +404,15 @@ resolve_engine_bin() {
         claude)
             resolve_claude_bin
             ;;
+        engine)
+            # Python engine (direct SenseNova call, no adapter)
+            local engine_py="$PROJECT_DIR/scripts/core/engine.py"
+            if [ -f "$engine_py" ]; then
+                echo "/Users/ayong/.workbuddy/binaries/python/versions/3.13.12/bin/python3"
+                return 0
+            fi
+            return 1
+            ;;
         codex)
             resolve_codex_bin
             ;;
@@ -474,11 +483,17 @@ run_claude_cycle() {
     set +e
     (
         cd "$PROJECT_DIR" || exit 1
-        # Route through mini adapter (handles role=system → top-level system param)
-        # ANTHROPIC_AUTH_TOKEN (set by rotate_api_key) handles auth; adapter handles format
-        export ANTHROPIC_BASE_URL="http://127.0.0.1:${ADAPTER_PORT}"
+        # Only use adapter for claude engine; engine.py calls SenseNova directly
+        if [ "$ENGINE" = "claude" ]; then
+            export ANTHROPIC_BASE_URL="http://127.0.0.1:${ADAPTER_PORT}"
+        fi
 
-        local claude_cmd=("$RESOLVED_ENGINE_BIN" "-p" "$prompt" "--output-format" "json")
+        local claude_cmd=()
+        if [ "$ENGINE" = "engine" ]; then
+            claude_cmd=("$RESOLVED_ENGINE_BIN" "$PROJECT_DIR/scripts/core/engine.py" "-p" "$prompt" "--output-format" "json")
+        else
+            claude_cmd=("$RESOLVED_ENGINE_BIN" "-p" "$prompt" "--output-format" "json")
+        fi
         if [ -n "$MODEL" ]; then
             claude_cmd+=("--model" "$MODEL")
         fi
@@ -533,7 +548,7 @@ run_claude_cycle() {
 run_engine_cycle() {
     local prompt="$1"
     case "$ENGINE" in
-        claude)
+        claude|engine)
             run_claude_cycle "$prompt"
             ;;
         codex)
@@ -554,7 +569,7 @@ extract_cycle_metadata() {
     CYCLE_API_STATUS=0
     CYCLE_TYPE="${ENGINE}_exec"
 
-    if [ "$ENGINE" = "claude" ]; then
+    if [ "$ENGINE" = "claude" ] || [ "$ENGINE" = "engine" ]; then
         if command -v jq >/dev/null 2>&1; then
             RESULT_TEXT=$(echo "$RESULT_MESSAGE" | jq -r '.result // .message // .output_text // empty' 2>/dev/null | head -c 2000 || true)
             if [ -z "$RESULT_TEXT" ]; then
@@ -620,20 +635,26 @@ extract_cycle_metadata() {
 
 # === API Connectivity Check (via adapter, then to SenseNova) ===
 check_api_connectivity() {
-    # Check adapter is alive first, then it verifies upstream connectivity
+    # In engine mode, check SenseNova directly; in claude mode, check adapter
     local http_code
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-        "http://127.0.0.1:${ADAPTER_PORT}/health" \
-        --connect-timeout 3 --max-time 5 2>/dev/null || echo "000")
-
-    case "$http_code" in
-        200|400|401|429|500|502|503)
-            return 0  # Adapter is healthy (upstream is its problem)
-            ;;
-        *)
-            return 1  # Unreachable
-            ;;
-    esac
+    if [ "$ENGINE" = "engine" ]; then
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://token.sensenova.cn/v1/models" \
+            -H "Authorization: Bearer ${ANTHROPIC_AUTH_TOKEN:-}" \
+            --connect-timeout 5 --max-time 10 2>/dev/null || echo "000")
+        case "$http_code" in
+            200|401|429) return 0 ;;  # 200=ok, 401=auth(means reachable), 429=limited
+            *) return 1 ;;
+        esac
+    else
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "http://127.0.0.1:${ADAPTER_PORT}/health" \
+            --connect-timeout 3 --max-time 5 2>/dev/null || echo "000")
+        case "$http_code" in
+            200|400|401|429|500|502|503) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
 }
 
 # === Key Rotation ===
@@ -727,6 +748,7 @@ rotate_api_key() {
     fi
 
     export ANTHROPIC_AUTH_TOKEN="$key_value"
+    export ANTHROPIC_API_KEY="$key_value"
     # Show account name instead of raw key prefix (security: prevent key leak in logs)
     local key_account
     key_account=$(eval echo "\${${best_key}_ACCOUNT:-}")
@@ -982,7 +1004,7 @@ fi
 
 # Check dependencies
 if ! RESOLVED_ENGINE_BIN="$(resolve_engine_bin)"; then
-    if [ "$ENGINE" = "claude" ]; then
+    if [ "$ENGINE" = "claude" ] || [ "$ENGINE" = "engine" ]; then
         echo "Error: Claude CLI not found. Install Claude Code in WSL and verify with 'claude --version'."
     else
         echo "Error: Codex CLI not found. Install Codex in WSL and verify with 'codex --version'."
@@ -1017,6 +1039,14 @@ start_anthropic_adapter() {
         log "ERROR: anthropic-adapter.py not found at $adapter_script"
         exit 1
     fi
+    # Clean up any stale adapter on this port
+    local stale_pid
+    stale_pid=$(lsof -t -i:${ADAPTER_PORT} 2>/dev/null || true)
+    if [ -n "$stale_pid" ]; then
+        log "Killing stale adapter on port ${ADAPTER_PORT} (PID $stale_pid)"
+        kill -9 $stale_pid 2>/dev/null || true
+        sleep 1
+    fi
     python3 "$adapter_script" &
     ADAPTER_PID=$!
     # Wait for adapter to be ready
@@ -1028,7 +1058,9 @@ start_anthropic_adapter() {
         sleep 1
     done
 }
-start_anthropic_adapter
+if [ "$ENGINE" = "claude" ]; then
+    start_anthropic_adapter
+fi
 
 # Initialize counters
 loop_count=0
@@ -1092,10 +1124,12 @@ while true; do
     # Log rotation
     rotate_logs
 
-    # Ensure anthropic adapter is alive; restart if dead
-    if ! kill -0 "$ADAPTER_PID" 2>/dev/null; then
-        log "Anthropic adapter (PID $ADAPTER_PID) is dead. Restarting..."
-        start_anthropic_adapter
+    # Ensure anthropic adapter is alive; restart if dead (claude engine only)
+    if [ "$ENGINE" = "claude" ]; then
+        if ! kill -0 "$ADAPTER_PID" 2>/dev/null; then
+            log "Anthropic adapter (PID $ADAPTER_PID) is dead. Restarting..."
+            start_anthropic_adapter
+        fi
     fi
 
     # Quick connectivity check: verify SenseNova endpoint is reachable
@@ -1317,14 +1351,17 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
         error_chain=$((error_chain + 1))
         log_cycle "$loop_count" "FAIL" "$cycle_failed_reason (cost: ${CYCLE_COST}, subtype: ${CYCLE_SUBTYPE}, errors: $error_count/$MAX_CONSECUTIVE_ERRORS)"
 
-        # Check for usage limit — on 429, try to preserve partial work before rotating key.
-        # SenseNova free tier genuinely exhausts per-account quota on 429 (5h reset),
-        # so failing to mark it means rotate_api_key() always picks the same key.
+        # Check for API auth/limit errors — mark key exhausted and rotate on 429 or 401.
+        # 429 = rate limited (quota exhausted on SenseNova free tier, 5h reset).
+        # 401 = key expired/revoked (won't recover without key renewal).
+        # Both require marking the key dead so rotate_api_key() skips to the next one.
         log "[DEBUG] CYCLE_API_STATUS=$CYCLE_API_STATUS, CYCLE_IS_ERROR=$CYCLE_IS_ERROR"
-        if [ "$CYCLE_API_STATUS" = "429" ]; then
+        if [ "$CYCLE_API_STATUS" = "429" ] || [ "$CYCLE_API_STATUS" = "401" ]; then
             # On 429, the agent may have already written partial consensus BEFORE the API cut off.
             # Only restore from backup if consensus is unchanged or structurally broken.
-            if validate_consensus && consensus_changed_since_backup; then
+            # On 401, consensus can't have been written (API rejected before any LLM work),
+            # so always restore from backup.
+            if [ "$CYCLE_API_STATUS" = "429" ] && validate_consensus && consensus_changed_since_backup; then
                 stamp_consensus_timestamp
                 log_cycle "$loop_count" "PARTIAL" "429 hit but consensus was partially updated — keeping progress"
             else
@@ -1335,7 +1372,9 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
             mark_key_exhausted
             rotate_api_key
 
-            log_cycle "$loop_count" "LIMIT" "API usage limit detected. Key rotated. Waiting ${LIMIT_WAIT_SECONDS}s..."
+            local _key_err_label="LIMIT"
+            [ "$CYCLE_API_STATUS" = "401" ] && _key_err_label="AUTH"
+            log_cycle "$loop_count" "$_key_err_label" "API ${CYCLE_API_STATUS} detected. Key rotated. Waiting ${LIMIT_WAIT_SECONDS}s..."
             save_state "waiting_limit"
             # Chunked sleep with stop signal checking
             local __wait_remaining=$LIMIT_WAIT_SECONDS
