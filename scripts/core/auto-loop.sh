@@ -667,7 +667,7 @@ check_api_connectivity() {
 # === Key Rotation ===
 # SenseNova 免费额度每 5 小时重置。用完一个 key 自动切换下一个。
 KEY_STATE_FILE="$PROJECT_DIR/.key-rotation-state"
-KEY_IDS=(SENSE_NOVA_API_KEY SENSE_NOVA_API_KEY_2 SENSE_NOVA_API_KEY_3 SENSE_NOVA_API_KEY_4 SENSE_NOVA_API_KEY_5 SENSE_NOVA_API_KEY_6)
+KEY_IDS=(AC_API_KEY_1 AC_API_KEY_2 AC_API_KEY_3 AC_API_KEY_4 AC_API_KEY_5 AC_API_KEY_6)
 
 rotate_api_key() {
     local now key_exhausted_at elapsed_hours best_key best_idx

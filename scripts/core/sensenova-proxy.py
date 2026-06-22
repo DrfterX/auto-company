@@ -16,20 +16,20 @@ import urllib.request, urllib.error
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8082
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
-# Supports up to 6 keys (SENSE_NOVA_API_KEY through _6) for rotation.
+# Supports up to 6 keys (AC_API_KEY_1 through _6) for rotation.
 # NOTE: Only use SENSE_NOVA_* keys — SENSENOVA_API_KEY (讯飞MaaS) is NOT included.
 API_KEYS = [k for k in [
-    os.environ.get("SENSE_NOVA_API_KEY", ""),
-    os.environ.get("SENSE_NOVA_API_KEY_2", ""),
-    os.environ.get("SENSE_NOVA_API_KEY_3", ""),
-    os.environ.get("SENSE_NOVA_API_KEY_4", ""),
-    os.environ.get("SENSE_NOVA_API_KEY_5", ""),
-    os.environ.get("SENSE_NOVA_API_KEY_6", ""),
+    os.environ.get("AC_API_KEY_1", ""),
+    os.environ.get("AC_API_KEY_2", ""),
+    os.environ.get("AC_API_KEY_3", ""),
+    os.environ.get("AC_API_KEY_4", ""),
+    os.environ.get("AC_API_KEY_5", ""),
+    os.environ.get("AC_API_KEY_6", ""),
 ] if k]
 
 # ── Key override via file (secret, not in env) ─────────────────────────────────
 # If KEY_FILE path is set, read a single key from it (append to API_KEYS).
-_KEY_FILE = os.environ.get("SENSE_NOVA_KEY_FILE", "")
+_KEY_FILE = os.environ.get("AC_KEY_FILE", "")
 if _KEY_FILE and os.path.isfile(_KEY_FILE):
     try:
         with open(_KEY_FILE) as f:

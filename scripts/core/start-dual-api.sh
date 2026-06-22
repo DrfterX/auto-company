@@ -26,7 +26,7 @@ fi
 # ============================================
 # 1. 启动 SenseNova 代理
 # ============================================
-# 从 hermes 配置中提取 API Keys（覆盖 .env 中的 SENSE_NOVA_API_KEY）
+# 从 hermes 配置中提取 API Keys（覆盖 .env 中的 AC_API_KEY_1）
 SENSE_NOVA_KEY=$(python3 -c "
 txt = open('$HOME/.hermes/config.yaml').read()
 for line in txt.splitlines():
@@ -46,7 +46,7 @@ for line in txt.splitlines():
 " 2>/dev/null)
 
 if [ -n "$SENSE_NOVA_KEY" ]; then
-    export SENSE_NOVA_API_KEY="$SENSE_NOVA_KEY"
+    export AC_API_KEY_1="$SENSE_NOVA_KEY"
 fi
 if [ -n "$MODELSCOPE_KEY" ]; then
     export MODELSCOPE_API_KEY="$MODELSCOPE_KEY"
