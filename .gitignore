@@ -141,6 +141,7 @@ logs/
 .auto-loop-wsl-anchor.pid
 .auto-loop-wsl-anchor.stop
 memories/consensus.md.bak
+.key-rotation-state
 
 # Projects directory (show folder on GitHub, hide contents)
 projects/*
