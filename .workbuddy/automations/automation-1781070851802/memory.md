@@ -1,5 +1,30 @@
 # Auto Company 健康监控执行记录
 
+## 2026-06-23 07:50
+
+**时段:** 睡眠时段 (00:00~08:00)
+**状态:** 🔇 静默运行
+
+### 检查内容
+- 运行 `scripts/core/monitor.sh --status`（健康快照检查）
+- 追加健康快照到 logs/monitor-alerts.log
+- 项目活动摘要报告（自 2026-06-22T08:01:11 起）
+
+### 发现
+- **Auto Loop:** 运行中 (PID 27511), LOOP_COUNT=158, ERROR_COUNT=0, STATUS=no_keys
+- **Daemon:** NOT LOADED
+- **最近 Cycle:** #156 [OK] + #157 [FAIL] (429 限流) → 全 6 Key 耗尽 → #158 NO_KEYS
+- **当前 session 周期：** #1~#158（OK: 61, FAIL: 93）
+- **429 事件：** ~8 次（含 2 次全 Key 耗尽）
+- **共识:** P0 — K 线算法多周期校验（子任务 1.1 已完成，子任务 1.2 完成但发现日K线严重存储错误）
+- **关键发现:** DB 中日 K 线实际存储 15 分钟片段时间戳（每天 5 条），非聚合日 K 线，7 个品种均未通过校验
+- **下次 Key 恢复:** SENSE_NOVA_API_KEY 约 73min 后（03:56+5h）
+
+### 结果
+- `notification-last.txt` 写入 "睡眠时段 — 监控已静默运行" + 项目活动摘要报告
+- 健康快照追加至 `logs/monitor-alerts.log`
+- 检查点更新至 `logs/.health-check-ts`
+
 ## 2026-06-21 08:01
 
 **时段:** 清醒时段 (08:00~23:59)

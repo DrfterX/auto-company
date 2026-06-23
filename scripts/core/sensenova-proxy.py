@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-Auto Company Protocol Translation Proxy v4
+Auto Company Protocol Translation Proxy v5
 ============================================
-接收 Claude CLI 的 Anthropic /v1/messages 请求，
-翻译为 OpenAI /v1/chat/completions 发给 DeepSeek/SenseNova，
-响应再翻译回 Anthropic 格式。
+Receives Anthropic /v1/messages from Claude CLI,
+translates to OpenAI /v1/chat/completions for DeepSeek/SenseNova,
+translates response back to Anthropic format.
 
-支持 tool_use/tool_result ↔ function_call/tool 双向翻译。
-支持 6 个 SenseNova Key 轮换。
+Key management is handled by auto-loop.sh — the proxy simply
+uses whichever key is set in ANTHROPIC_AUTH_TOKEN.
+No internal key rotation. No state.
+
+Supports tool_use/tool_result ↔ function_call/tool bidirectional translation.
 """
 
-import sys, json, time, os, threading, http.server
+import sys, json, time, os, http.server
 import urllib.request, urllib.error
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8082
 
-# ── API Keys ──────────────────────────────────────────────────────────────────
-# Supports up to 6 keys (AC_API_KEY_1 through _6) for rotation.
-# NOTE: Only use SENSE_NOVA_* keys — SENSENOVA_API_KEY (讯飞MaaS) is NOT included.
+# ── API Keys (for health endpoint count only) ─────────────────────────────────
 API_KEYS = [k for k in [
     os.environ.get("AC_API_KEY_1", ""),
     os.environ.get("AC_API_KEY_2", ""),
@@ -27,34 +28,11 @@ API_KEYS = [k for k in [
     os.environ.get("AC_API_KEY_6", ""),
 ] if k]
 
-# ── Key override via file (secret, not in env) ─────────────────────────────────
-# If KEY_FILE path is set, read a single key from it (append to API_KEYS).
-_KEY_FILE = os.environ.get("AC_KEY_FILE", "")
-if _KEY_FILE and os.path.isfile(_KEY_FILE):
-    try:
-        with open(_KEY_FILE) as f:
-            extra = f.read().strip()
-        if extra:
-            API_KEYS.append(extra)
-    except Exception:
-        pass
-
-# DeepSeek 仅支持 OpenAI 协议，所以发到 /v1/chat/completions
+# DeepSeek speaks OpenAI protocol only → send to /v1/chat/completions
 BACKEND_URL = "https://token.sensenova.cn/v1/chat/completions"
 MODEL = "deepseek-v4-flash"
 
-_key_lock = threading.Lock()
-_key_index = 0
-
-def next_key():
-    global _key_index
-    with _key_lock:
-        idx = _key_index % len(API_KEYS)
-        k = API_KEYS[idx]
-        _key_index += 1
-        return k, idx
-
-# ── 协议翻译 ───────────────────────────────────────────────────────────────────
+# ── Protocol Translation ──────────────────────────────────────────────────────
 
 def anthropic_to_openai(body):
     """Anthropic /v1/messages → OpenAI /v1/chat/completions"""
@@ -77,7 +55,6 @@ def anthropic_to_openai(body):
         content = msg.get("content", "")
 
         if role == "assistant":
-            # Assistant messages may have text + tool_use blocks
             text_parts = []
             tool_calls = []
 
@@ -109,7 +86,6 @@ def anthropic_to_openai(body):
                 text_parts = []
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
-                        # tool_result → tool role message
                         tool_use_id = block.get("tool_use_id", "")
                         result_content = block.get("content", "")
                         if isinstance(result_content, list):
@@ -168,11 +144,9 @@ def openai_to_anthropic(oa_resp, max_tokens=4096):
 
     content_blocks = []
 
-    # Text
     if content_text:
         content_blocks.append({"type": "text", "text": content_text})
 
-    # Tool calls
     for tc in tool_calls:
         if tc.get("type") == "function":
             fn = tc.get("function", {})
@@ -191,7 +165,6 @@ def openai_to_anthropic(oa_resp, max_tokens=4096):
     sr_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use"}
     anthropic_reason = sr_map.get(stop_reason, "end_turn")
 
-    # Usage
     usage = oa_resp.get("usage", {})
     anthropic_usage = {}
     if usage:
@@ -272,55 +245,51 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             self._send(500, {"error": f"translation error: {e}"})
             return
 
-        # Force non-streaming to avoid streaming format issues
         oa_body["stream"] = False
+
+        # ── Use the key that auto-loop.sh chose ──
+        key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+        if not key:
+            self._send(500, {"error": "no API key configured (ANTHROPIC_AUTH_TOKEN not set)"})
+            return
 
         t0 = time.time()
 
-        for attempt in range(max(len(API_KEYS), 1)):
-            key, idx = next_key()
+        try:
+            req_body = json.dumps(oa_body).encode()
+            req = urllib.request.Request(
+                BACKEND_URL,
+                data=req_body,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            resp = urllib.request.urlopen(req, timeout=120)
+            oa_result = json.loads(resp.read())
+            elapsed = int((time.time() - t0) * 1000)
 
-            try:
-                req_body = json.dumps(oa_body).encode()
-                req = urllib.request.Request(
-                    BACKEND_URL,
-                    data=req_body,
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json",
-                    },
-                )
-                resp = urllib.request.urlopen(req, timeout=120)
-                oa_result = json.loads(resp.read())
-                elapsed = int((time.time() - t0) * 1000)
-                
-                # Translate back: OpenAI → Anthropic
-                anth_result = openai_to_anthropic(oa_result, anth_body.get("max_tokens", 4096))
-                
-                # Log
-                usage = oa_result.get("usage", {})
-                total_tokens = usage.get("total_tokens", 0)
-                print(f"[{time.strftime('%H:%M:%S')}] key#{idx+1} {elapsed}ms {total_tokens}t | tools={bool(oa_body.get('tools'))}", flush=True)
-                
-                self._send(200, anth_result)
-                return
+            anth_result = openai_to_anthropic(oa_result, anth_body.get("max_tokens", 4096))
 
-            except urllib.error.HTTPError as e:
-                code = e.code
-                err_body = e.read().decode()
-                elapsed = int((time.time() - t0) * 1000)
-                print(f"[{time.strftime('%H:%M:%S')}] key#{idx+1} HTTP {code} {elapsed}ms", flush=True)
-                if code in (429, 401, 403):
-                    continue
-                self._send(code, json.loads(err_body) if err_body else {"error": f"HTTP {code}"})
-                return
+            usage = oa_result.get("usage", {})
+            total_tokens = usage.get("total_tokens", 0)
+            print(f"[{time.strftime('%H:%M:%S')}] {elapsed}ms {total_tokens}t | tools={bool(oa_body.get('tools'))}", flush=True)
 
-            except Exception as e:
-                elapsed = int((time.time() - t0) * 1000)
-                print(f"[{time.strftime('%H:%M:%S')}] key#{idx+1} ERR {elapsed}ms {type(e).__name__}: {e}", flush=True)
-                continue
+            self._send(200, anth_result)
+            return
 
-        self._send(429, {"error": "all API keys exhausted"})
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode()
+            elapsed = int((time.time() - t0) * 1000)
+            print(f"[{time.strftime('%H:%M:%S')}] HTTP {e.code} {elapsed}ms", flush=True)
+            self._send(e.code, json.loads(err_body) if err_body else {"error": f"HTTP {e.code}"})
+            return
+
+        except Exception as e:
+            elapsed = int((time.time() - t0) * 1000)
+            print(f"[{time.strftime('%H:%M:%S')}] ERR {elapsed}ms {type(e).__name__}: {e}", flush=True)
+            self._send(502, {"error": str(e)})
+            return
 
 
 if __name__ == "__main__":
@@ -329,10 +298,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), ProxyHandler)
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Auto Company Proxy v4 (Anthropic↔OpenAI)", flush=True)
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Auto Company Proxy v5 (Anthropic↔OpenAI | passive)", flush=True)
     print(f"  Port:    {PORT}", flush=True)
     print(f"  Keys:    {len(API_KEYS)}", flush=True)
     print(f"  Model:   {MODEL}", flush=True)
     print(f"  Backend: {BACKEND_URL}", flush=True)
-    print(f"  Health:  http://127.0.0.1:{PORT}/health", flush=True)
     server.serve_forever()

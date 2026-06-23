@@ -664,105 +664,32 @@ check_api_connectivity() {
     fi
 }
 
-# === Key Rotation ===
-# SenseNova 免费额度每 5 小时重置。用完一个 key 自动切换下一个。
-KEY_STATE_FILE="$PROJECT_DIR/.key-rotation-state"
+# === Key Management ===
+# SenseNova free-tier keys. auto-loop.sh now owns all key rotation logic.
+# The proxy simply uses whichever key is set in ANTHROPIC_AUTH_TOKEN.
 KEY_IDS=(AC_API_KEY_1 AC_API_KEY_2 AC_API_KEY_3 AC_API_KEY_4 AC_API_KEY_5 AC_API_KEY_6)
 
-rotate_api_key() {
-    local now key_exhausted_at elapsed_hours best_key best_idx
+# Internal state (persists across cycles within the same loop process)
+key_idx=0          # current key index: 0-5
+key_retry=0        # 0=normal, 1=about to retry same key after 1st 429
+second_loop=0      # 0=first round through 6 keys, 1=wrapped back to key_0
 
-    now=$(date +%s)
-
-    # Read key state from file (JSON lines: key_id exhausted_timestamp)
-    # Format: each line = "KEY_ID TIMESTAMP" (TIMESTAMP=0 means fresh)
-    if [ ! -f "$KEY_STATE_FILE" ]; then
-        # Initialize: all keys start fresh (timestamp=0)
-        > "$KEY_STATE_FILE"
-        for kid in "${KEY_IDS[@]}"; do
-            echo "$kid 0" >> "$KEY_STATE_FILE"
-        done
-    fi
-
-    # Find the best (non-exhausted or recovered) key
-    best_key=""
-    best_idx=0
-    while read -r line; do
-        local kid ts
-        kid=$(echo "$line" | awk '{print $1}')
-        ts=$(echo "$line" | awk '{print $2}')
-        if [ "$ts" -eq 0 ]; then
-            # Fresh key (never exhausted)
-            best_key="$kid"
-            break
-        fi
-        elapsed_hours=$(( (now - ts) / 3600 ))
-        if [ "$elapsed_hours" -ge 5 ]; then
-            # Recovered after 5h cooldown
-            best_key="$kid"
-            # Reset timestamp
-            sed -i '' "s/^$kid .*/$kid 0/" "$KEY_STATE_FILE"
-            break
-        fi
-    done < "$KEY_STATE_FILE"
-
-    # If no key found in order scan, do a full search
-    if [ -z "$best_key" ]; then
-        while read -r line; do
-            local kid ts
-            kid=$(echo "$line" | awk '{print $1}')
-            ts=$(echo "$line" | awk '{print $2}')
-            if [ "$ts" -eq 0 ]; then
-                best_key="$kid"
-                break
-            fi
-            elapsed_hours=$(( (now - ts) / 3600 ))
-            if [ "$elapsed_hours" -ge 5 ]; then
-                best_key="$kid"
-                sed -i '' "s/^$kid .*/$kid 0/" "$KEY_STATE_FILE"
-                break
-            fi
-        done < "$KEY_STATE_FILE"
-    fi
-
-    # Fallback: all keys exhausted, none recovered yet
-    if [ -z "$best_key" ]; then
-        local oldest_ts=$((now + 1))
-        local oldest_kid="${KEY_IDS[0]}"
-        while read -r line; do
-            local kid ts
-            kid=$(echo "$line" | awk '{print $1}')
-            ts=$(echo "$line" | awk '{print $2}')
-            if [ "$ts" -gt 0 ] && [ "$ts" -lt "$oldest_ts" ]; then
-                oldest_ts=$ts
-                oldest_kid="$kid"
-            fi
-        done < "$KEY_STATE_FILE"
-        local wait_sec=$(( 5 * 3600 - (now - oldest_ts) ))
-        [ "$wait_sec" -lt 0 ] && wait_sec=0
-        local wait_min=$(( wait_sec / 60 ))
-        log "ALL 6 API keys exhausted. Next recovery (${oldest_kid}) in ${wait_min}min at $(date -r $oldest_ts -j '+%H:%M' 2>/dev/null || echo 'soon')+5h"
-        ALL_KEYS_EXHAUSTED=$wait_sec
-        return 2  # Special code: all keys exhausted
-    fi
-
-    # Read the actual key value from environment or .env
+select_current_key() {
+    local key_name="${KEY_IDS[$key_idx]}"
     local key_value
-    key_value=$(eval echo "\${$best_key:-}")
+    key_value=$(eval echo "\${$key_name:-}")
     if [ -z "$key_value" ]; then
-        log "ERROR: Key $best_key is empty! Check .env file"
+        log "ERROR: Key $key_name is empty! Check .env file"
         return 1
     fi
-
     export ANTHROPIC_AUTH_TOKEN="$key_value"
     export ANTHROPIC_API_KEY="$key_value"
-    # Show account name instead of raw key prefix (security: prevent key leak in logs)
     local key_account
-    key_account=$(eval echo "\${${best_key}_ACCOUNT:-}")
+    key_account=$(eval echo "\${${key_name}_ACCOUNT:-}")
     if [ -n "$key_account" ]; then
-        log_cycle "$loop_count" "KEY" "Using $best_key ($key_account)"
+        log_cycle "$loop_count" "KEY" "Using $key_name ($key_account)"
     else
-        log_cycle "$loop_count" "KEY" "Using $best_key (${key_value:0:12}...)"
+        log_cycle "$loop_count" "KEY" "Using $key_name (${key_value:0:12}...)"
     fi
     return 0
 }
@@ -777,32 +704,6 @@ stamp_consensus_timestamp() {
         # Replace the line immediately after "## Last Updated" with the real time
         sed -i '' "/^## Last Updated$/{n;s/.*/$now/;}" "$CONSENSUS_FILE"
     fi
-}
-
-mark_key_exhausted() {
-    local now
-    now=$(date +%s)
-
-    # Find which key is currently active and mark it
-    local current_token="${ANTHROPIC_AUTH_TOKEN:-}"
-    if [ -z "$current_token" ]; then
-        return
-    fi
-
-    while read -r line; do
-        local kid ts
-        kid=$(echo "$line" | awk '{print $1}')
-        ts=$(echo "$line" | awk '{print $2}')
-        local key_val
-        key_val=$(eval echo "\${$kid:-}")
-        if [ "$key_val" = "$current_token" ] && [ "$ts" -eq 0 ]; then
-            sed -i '' "s/^$kid 0/$kid $now/" "$KEY_STATE_FILE"
-            local readable
-            readable=$(date '+%Y-%m-%d %H:%M:%S')
-            log_cycle "$loop_count" "KEY" "Marked $kid as exhausted at $readable"
-            break
-        fi
-    done < "$KEY_STATE_FILE"
 }
 
 # === Exponential Backoff ===
@@ -1076,7 +977,6 @@ error_chain=0
 subtask_breakdown_flag=0
 api_health_fail_count=0
 idle_skip_count=0
-ALL_KEYS_EXHAUSTED=0
 
 # Clear stale deadlock history from previous run
 rm -f "$NA_HISTORY_FILE"
@@ -1085,6 +985,8 @@ log "=== Auto Company Loop Started (PID $$) ==="
 log "Project: $PROJECT_DIR"
 if [ "$ENGINE" = "codex" ]; then
     log "Engine: codex | Model: $MODEL_LABEL | Sandbox: $CODEX_SANDBOX_MODE"
+elif [ "$ENGINE" = "engine" ]; then
+    log "Engine: engine | Model: $MODEL_LABEL"
 else
     log "Engine: claude | Model: $MODEL_LABEL | PermissionMode: $CLAUDE_PERMISSION_MODE"
 fi
@@ -1154,17 +1056,13 @@ while true; do
     fi
     api_health_fail_count=0
 
-    # Rotate API key: pick the best available key, cycle on exhaustion
-    ALL_KEYS_EXHAUSTED=0
-    rotate_api_key
+    # Select current key (simple index-based, no state file)
+    select_current_key
     key_rc=$?
-    if [ "$key_rc" -eq 2 ]; then
-        log_cycle "$loop_count" "NO_KEYS" "All 6 API keys exhausted. Pausing 600s..."
-        save_state "no_keys"
-        write_status_json "NO_KEYS"
-        sleep 600
-        log_cycle "$loop_count" "NO_KEYS" "Cooldown complete. Keys should be recovered. Resuming..."
-        save_state "idle"
+    if [ "$key_rc" -ne 0 ]; then
+        log_cycle "$loop_count" "ERROR" "Failed to select API key. Skipping cycle..."
+        save_state "key_error"
+        sleep "$LOOP_INTERVAL"
         continue
     fi
 
@@ -1184,7 +1082,6 @@ while true; do
         continue
     fi
     idle_skip_count=0
-ALL_KEYS_EXHAUSTED=0
     rm -f "$IDLE_SKIP_COUNT_FILE"
 
     # Subtask granularity check: flag any subtask ≥20min before proceeding
@@ -1329,6 +1226,7 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
         fi
         error_count=0
         error_chain=0
+        key_retry=0
         rm -f "$PROJECT_DIR/.consensus-retry-count"
         stamp_consensus_timestamp
     elif [ -z "$cycle_failed_reason" ]; then
@@ -1371,6 +1269,7 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
 
         error_count=0
         error_chain=0
+        key_retry=0
         rm -f "$PROJECT_DIR/.consensus-retry-count"
         stamp_consensus_timestamp
     else
@@ -1407,28 +1306,46 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
                 continue
             fi
 
-            # ── 429 quota exhaustion ── rotate key immediately, no wait
-            if [ "$CYCLE_API_STATUS" = "429" ]; then
-                mark_key_exhausted
-                rotate_api_key
-                log_cycle "$loop_count" "QUOTA" "API quota exhausted. Key rotated immediately. Continue..."
+            # ── Key rotation state machine ──
+            if [ "$key_retry" -eq 0 ]; then
+                # First 429/401 on this key → wait 180s, retry same key
+                key_retry=1
+                log_cycle "$loop_count" "RETRY" "429/401 on key $((key_idx+1))/6. Retry same key in 180s..."
+                save_state "retry_429"
+                sleep 180
+                error_count=0
+                error_chain=0
+                continue
+            else
+                # Second consecutive 429/401 → switch to next key
+                key_retry=0
+                if [ "$second_loop" -eq 1 ] && [ "$key_idx" -eq 0 ]; then
+                    # Full 2nd rotation failed on key_1 → all keys likely exhausted
+                    log_cycle "$loop_count" "COOLDOWN" "2nd rotation key 1 exhausted. All keys likely dry — cooling down 7200s..."
+                    save_state "cooldown"
+                    sleep 7200
+                    key_idx=0
+                    second_loop=0
+                    log_cycle "$loop_count" "COOLDOWN" "Cooldown complete. Fresh start from key 1."
+                    error_count=0
+                    error_chain=0
+                    continue
+                fi
+                # Switch to next key
+                key_idx=$(( (key_idx + 1) % 6 ))
+                if [ "$key_idx" -eq 0 ]; then
+                    second_loop=1
+                    log_cycle "$loop_count" "WRAP" "Completed 1 full key rotation. Entering 2nd pass..."
+                fi
+                log_cycle "$loop_count" "SWITCH" "Switched to key $((key_idx+1))/6"
                 error_count=0
                 error_chain=0
                 continue
             fi
-
-            # ── 401 expired key ── rotate immediately, no wait
-            if [ "$CYCLE_API_STATUS" = "401" ]; then
-                mark_key_exhausted
-                rotate_api_key
-                log_cycle "$loop_count" "AUTH" "API 401. Key rotated immediately. Continue..."
-                error_count=0
-                error_chain=0
-                continue
-            fi
-            error_chain=0
-            continue
         fi
+
+        # ── Reset retry state on non-429 cycle ──
+        key_retry=0
 
         # Non-429 failure: restore consensus unconditionally
         restore_consensus
