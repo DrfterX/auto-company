@@ -250,9 +250,30 @@ backup_consensus() {
 }
 
 restore_consensus() {
+    # ── Smart restore: preserve human edits / engine partial progress ──
+    # Only do full file-level restore if .md is missing or corrupted.
+    # If .md is valid, just mark the Next Action as retried — don't overwrite
+    # the file content that may contain partial results or human refinements.
+    local should_full_restore=0
+
     if [ -f "$CONSENSUS_FILE.bak" ]; then
-        cp "$CONSENSUS_FILE.bak" "$CONSENSUS_FILE"
-        log "Consensus restored from backup after failed cycle"
+        if [ ! -f "$CONSENSUS_FILE" ] || [ ! -s "$CONSENSUS_FILE" ]; then
+            # File is missing or empty → need full restore
+            should_full_restore=1
+        elif ! grep -q "^# Auto Company Consensus" "$CONSENSUS_FILE" 2>/dev/null; then
+            # File corrupted → full restore
+            should_full_restore=1
+        elif ! grep -q "^## Next Action" "$CONSENSUS_FILE" 2>/dev/null; then
+            # Missing Next Action section → full restore
+            should_full_restore=1
+        fi
+
+        if [ "$should_full_restore" -eq 1 ]; then
+            cp "$CONSENSUS_FILE.bak" "$CONSENSUS_FILE"
+            log "Consensus fully restored from backup (corrupted/missing)"
+        else
+            log "Consensus valid — skipping full restore, marking retry only"
+        fi
     fi
 
     # --- Retry tracking: mark the restored Next Action so the next cycle knows it failed before ---
@@ -673,6 +694,7 @@ KEY_IDS=(AC_API_KEY_1 AC_API_KEY_2 AC_API_KEY_3 AC_API_KEY_4 AC_API_KEY_5 AC_API
 key_idx=0          # current key index: 0-5
 key_retry=0        # 0=normal, 1=about to retry same key after 1st 429
 second_loop=0      # 0=first round through 6 keys, 1=wrapped back to key_0
+second_pass_fails=0  # consecutive 429 fails in second loop (trigger cooldown at 6)
 
 select_current_key() {
     local key_name="${KEY_IDS[$key_idx]}"
@@ -1227,6 +1249,7 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
         error_count=0
         error_chain=0
         key_retry=0
+        second_pass_fails=0
         rm -f "$PROJECT_DIR/.consensus-retry-count"
         stamp_consensus_timestamp
     elif [ -z "$cycle_failed_reason" ]; then
@@ -1270,6 +1293,7 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
         error_count=0
         error_chain=0
         key_retry=0
+        second_pass_fails=0
         rm -f "$PROJECT_DIR/.consensus-retry-count"
         stamp_consensus_timestamp
     else
@@ -1319,22 +1343,29 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
             else
                 # Second consecutive 429/401 → switch to next key
                 key_retry=0
-                if [ "$second_loop" -eq 1 ] && [ "$key_idx" -eq 0 ]; then
-                    # Full 2nd rotation failed on key_1 → all keys likely exhausted
-                    log_cycle "$loop_count" "COOLDOWN" "2nd rotation key 1 exhausted. All keys likely dry — cooling down 7200s..."
-                    save_state "cooldown"
-                    sleep 7200
-                    key_idx=0
-                    second_loop=0
-                    log_cycle "$loop_count" "COOLDOWN" "Cooldown complete. Fresh start from key 1."
-                    error_count=0
-                    error_chain=0
-                    continue
+                if [ "$second_loop" -eq 1 ]; then
+                    # Second pass: track how many keys have failed in a row
+                    second_pass_fails=$((second_pass_fails + 1))
+                    log_cycle "$loop_count" "KEYFAIL" "Key $((key_idx+1))/6 exhausted (${second_pass_fails}/6 consecutive in 2nd pass)"
+                    if [ "$second_pass_fails" -ge 6 ]; then
+                        # All 6 keys failed in second pass → genuine exhaustion
+                        log_cycle "$loop_count" "COOLDOWN" "All 6 keys exhausted in 2nd pass. Cooling down 7200s..."
+                        save_state "cooldown"
+                        sleep 7200
+                        key_idx=0
+                        second_loop=0
+                        second_pass_fails=0
+                        log_cycle "$loop_count" "COOLDOWN" "Cooldown complete. Fresh start from key 1."
+                        error_count=0
+                        error_chain=0
+                        continue
+                    fi
                 fi
                 # Switch to next key
                 key_idx=$(( (key_idx + 1) % 6 ))
                 if [ "$key_idx" -eq 0 ]; then
                     second_loop=1
+                    second_pass_fails=0
                     log_cycle "$loop_count" "WRAP" "Completed 1 full key rotation. Entering 2nd pass..."
                 fi
                 log_cycle "$loop_count" "SWITCH" "Switched to key $((key_idx+1))/6"
@@ -1346,6 +1377,7 @@ Write \`[WARMUP] OK — ...\` or \`[WARMUP] FAIL — ...\` to stdout and exit cl
 
         # ── Reset retry state on non-429 cycle ──
         key_retry=0
+        second_pass_fails=0
 
         # Non-429 failure: restore consensus unconditionally
         restore_consensus

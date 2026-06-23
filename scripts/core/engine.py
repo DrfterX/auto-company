@@ -286,14 +286,17 @@ def main():
         ai_text = resp["text"].strip()
 
         # ── Turn-limit awareness ──
-        # When approaching max turns, warn AI to wrap up
+        # Warn early (8 turns remaining) so AI has time to write a proper handoff
         remaining = args.max_turns - api_turns
-        if remaining <= 3 and remaining > 0:
+        if remaining <= 8 and remaining > 0:
             messages.append({"role": "user", "content": 
-                f"You have {remaining} turns remaining. Wrap up now: "
-                "output a final result with what you completed. "
-                "If unfinished, list remaining subtasks in the result so the next cycle can continue. "
-                "Do NOT start new tool calls unless they can complete in 1 turn."})
+                f"Only {remaining} turns left. STOP starting new work. "
+                "Write a JSON with \"result\" field containing:\n"
+                "- What you completed this cycle\n"
+                "- What remains (as numbered subtasks)\n"
+                "- The next subtask to execute\n\n"
+                "This handoff will become the Next Action for the next cycle. "
+                "Do NOT make more tool calls — just write the result."})
 
         # Try to parse JSON from AI response
         parsed = extract_json(ai_text)
@@ -344,8 +347,14 @@ def main():
             break
 
     else:
-        # Max turns exceeded
-        final_result = f"Max turns ({args.max_turns}) exceeded without task completion"
+        # Max turns exceeded — try to capture partial progress
+        if final_result and len(final_result) > 10:
+            final_result += f"\n\n[Max turns ({args.max_turns}) exceeded. Partial result captured above.]"
+        else:
+            final_result = (
+                f"Max turns ({args.max_turns}) exceeded. Next Next Action: "
+                "break the task into smaller subtasks and retry."
+            )
         is_error = True
 
     total_elapsed = (time.time() - total_start) * 1000
